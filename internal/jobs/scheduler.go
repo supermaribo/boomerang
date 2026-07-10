@@ -145,6 +145,24 @@ func (s *Scheduler) runWeeklyVerifyNow() {
 	}
 	if started > 0 {
 		log.Printf("weekly verify: started %d file backup check(s)", started)
+	}
+	dbs, _ := s.store.ListDatabases()
+	for _, d := range dbs {
+		if !d.Enabled {
+			continue
+		}
+		last, _ := s.store.LastSucceededVersion("db", d.ID)
+		if last == nil {
+			continue
+		}
+		if _, err := s.runner.StartDBVerify(d.ID, last.ID); err != nil {
+			log.Printf("weekly verify %s: %v", d.Name, err)
+			continue
+		}
+		started++
+	}
+	if started > 0 {
+		log.Printf("weekly verify: started %d backup check(s)", started)
 		_ = s.store.SetMeta("weekly_verify:"+weekKey, time.Now().UTC().Format(time.RFC3339))
 	}
 }

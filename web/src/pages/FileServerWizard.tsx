@@ -282,7 +282,7 @@ export default function FileServerWizard() {
       } else {
         await api("/api/file-servers", { method: "POST", body: JSON.stringify(body) });
       }
-      navigate("/app/file-servers");
+      navigate("/app/websites");
     } catch (err) {
       setError(err instanceof Error ? err.message : "save failed");
     } finally {
@@ -306,7 +306,7 @@ export default function FileServerWizard() {
     <div className="shell">
       <Nav />
       <header className="page-head">
-        <h1>{editing ? "Edit file server" : "Add file server"}</h1>
+        <h1>{editing ? "Edit website" : "Add website"}</h1>
         <p className="muted">
           Step {step + 1} of {STEPS.length}: {STEPS[step]}
         </p>
@@ -647,7 +647,7 @@ export default function FileServerWizard() {
         )}
 
         <div className="wizard-nav">
-          <Link className="ghost btn-link" to="/app/file-servers">
+          <Link className="ghost btn-link" to="/app/websites">
             Cancel
           </Link>
           <div className="actions">
@@ -662,7 +662,7 @@ export default function FileServerWizard() {
               </button>
             ) : (
               <button type="button" disabled={busy} onClick={(e) => void save(e as unknown as FormEvent)}>
-                {editing ? "Save changes" : "Create file server"}
+                {editing ? "Save changes" : "Create website"}
               </button>
             )}
           </div>

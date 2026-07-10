@@ -7,6 +7,7 @@ import SiteFooter from "../components/SiteFooter";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 import { formatApplianceDateTime } from "../lib/formatTime";
 import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
+import { pollJob, cancelJob } from "../lib/jobPoll";
 import { retentionSummary } from "../components/ScheduleRetention";
 
 export type FileServer = {
@@ -51,6 +52,7 @@ export default function FileServers() {
 
   const [deleteTarget, setDeleteTarget] = useState<FileServer | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   const load = async () => {
     const [list, health] = await Promise.all([
@@ -87,19 +89,41 @@ export default function FileServers() {
     setInfo("");
     try {
       const res = await api<{ jobId: string }>(`/api/file-servers/${id}/backup`, { method: "POST" });
-      setInfo(`Backup started (job ${res.jobId}).`);
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        const job = await api<{ status: string }>(`/api/jobs/${res.jobId}`);
-        const logs = await api<{ lines: string[] }>(`/api/jobs/${res.jobId}/logs`);
-        if (logs.lines?.length) setInfo(logs.lines.slice(-3).join(" · "));
-        if (job.status === "succeeded" || job.status === "failed") {
-          setInfo(`Backup ${job.status}. ${logs.lines?.slice(-1)[0] || ""}`);
-          break;
-        }
-      }
+      setActiveJobId(res.jobId);
+      setInfo(`Backup started (job ${res.jobId.slice(0, 8)}…).`);
+      const result = await pollJob(res.jobId, (lines) => setInfo(lines.join(" · ")));
+      setActiveJobId(null);
+      setInfo(
+        result.status === "succeeded"
+          ? `Backup succeeded. ${result.lastLines.slice(-1)[0] || ""}`
+          : result.status === "cancelled"
+            ? "Backup cancelled."
+            : `Backup failed: ${result.error || result.lastLines.slice(-1)[0] || ""}`,
+      );
+      await load();
     } catch (e) {
+      setActiveJobId(null);
       setError(e instanceof Error ? e.message : "backup failed");
+    }
+  };
+
+  const backupAll = async () => {
+    setError("");
+    setInfo("");
+    try {
+      const res = await api<{ jobs: { targetName: string; jobId: string; error?: string }[] }>(
+        "/api/file-servers/backup-all",
+        { method: "POST" },
+      );
+      const ok = res.jobs.filter((j) => !j.error);
+      setInfo(`Started ${ok.length} backup job(s)…`);
+      for (const j of ok) {
+        await pollJob(j.jobId, () => {});
+      }
+      setInfo(`Queued ${ok.length} website backup(s).`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "bulk backup failed");
     }
   };
 
@@ -108,23 +132,42 @@ export default function FileServers() {
       <Nav />
       <header className="page-head row-head">
         <div>
-          <h1>File servers</h1>
-          <p className="muted">Configured backup targets</p>
+          <h1>Websites</h1>
+          <p className="muted">Website file backup targets</p>
         </div>
-        <Link className="btn-primary" to="/app/file-servers/new">
-          Add file server
-        </Link>
+        <div className="head-actions">
+          <Link className="btn-primary" to="/app/websites/new">
+            Add website
+          </Link>
+          {list.some((f) => f.enabled) && (
+            <button type="button" className="ghost" onClick={() => void backupAll()}>
+              Backup all
+            </button>
+          )}
+        </div>
       </header>
 
       {error && <p className="err pad">{error}</p>}
-      {info && <p className="ok pad">{info}</p>}
+      {info && (
+        <p className="ok pad">
+          {info}
+          {activeJobId && (
+            <>
+              {" "}
+              <button type="button" className="ghost danger-text" onClick={() => void cancelJob(activeJobId)}>
+                Cancel job
+              </button>
+            </>
+          )}
+        </p>
+      )}
 
       <section className="tile">
         {list.length === 0 && (
           <div className="empty-state">
-            <p className="muted">No file servers yet.</p>
-            <Link className="btn-primary" to="/app/file-servers/new">
-              Add your first file server
+            <p className="muted">No websites yet.</p>
+            <Link className="btn-primary" to="/app/websites/new">
+              Add your first website
             </Link>
           </div>
         )}
@@ -136,11 +179,14 @@ export default function FileServers() {
               <li key={f.id}>
                 <div className="list-main">
                   <strong>
-                    <Link className="text-link" to={`/app/file-servers/${f.id}/backups`}>
+                    <Link className="text-link" to={`/app/websites/${f.id}/backups`}>
                       {f.name}
                     </Link>
                   </strong>
                   {health && <TargetHealthBadge health={health.health} detail={health.healthDetail} />}
+                  {health && (health.health === "warning" || health.health === "error") && health.healthDetail && (
+                    <span className="muted small"> — {health.healthDetail}</span>
+                  )}
                   {!f.enabled && <span className="badge">disabled</span>}
                   <span className="muted">
                     {" "}
@@ -160,7 +206,9 @@ export default function FileServers() {
                     {health?.nextRunAt && (
                       <span> · next run {formatApplianceDateTime(health.nextRunAt, timezone)}</span>
                     )}
-                    {f.protocol !== "rsync" && (
+                    {f.protocol === "rsync" ? (
+                      <span> · full snapshot (RSYNC)</span>
+                    ) : (
                       <span> · {f.incrementalEnabled !== false ? "incremental" : "full only"}</span>
                     )}
                   </div>
@@ -169,7 +217,7 @@ export default function FileServers() {
                   <button type="button" className="ghost" onClick={() => void backupNow(f.id)}>
                     Backup now
                   </button>
-                  <Link className="ghost btn-link" to={`/app/file-servers/${f.id}/edit`}>
+                  <Link className="ghost btn-link" to={`/app/websites/${f.id}/edit`}>
                     Edit
                   </Link>
                   <button type="button" className="ghost danger-text" onClick={() => setDeleteTarget(f)}>
@@ -183,7 +231,7 @@ export default function FileServers() {
         {deleteTarget && (
           <div className="modal-backdrop">
             <div className="modal tile">
-              <h2>Delete file server</h2>
+              <h2>Delete website</h2>
               <p className="muted">
                 This removes <strong>{deleteTarget.name}</strong> and all of its backup versions from
                 this appliance.

@@ -4,7 +4,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/store"
 )
 
-const jobLogBatchSize = 25
+const jobLogBatchSize = 5
 
 type jobLogSink struct {
 	store *store.Store

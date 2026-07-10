@@ -8,6 +8,9 @@
   --accent-ink: #06241c;
   --line: #2c3c38;
   --danger: #e07a7a;
+  --danger-bg: #c62828;
+  --danger-bg-hover: #d32f2f;
+  --danger-ink: #ffffff;
   --radius: 18px;
   --font: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --display: "Fraunces", Georgia, serif;
@@ -176,8 +179,23 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding: 1.35rem 1.4rem;
+  min-width: 0;
+  padding: 1.1rem 1rem;
   border-right: 1px solid var(--line);
+}
+
+.dash-overview .dash-tile h2 {
+  font-size: 0.78rem;
+  margin-bottom: 0.35rem;
+}
+
+.dash-overview .stat {
+  font-size: 2rem;
+  margin-bottom: 0.35rem;
+}
+
+.dash-overview .dash-meta {
+  font-size: 0.72rem;
 }
 
 .dash-overview .dash-tile:last-child {
@@ -1141,6 +1159,49 @@ textarea {
   color: var(--danger) !important;
 }
 
+button.danger-text,
+button.ghost.danger-text {
+  background: var(--danger-bg) !important;
+  color: var(--danger-ink) !important;
+  border: 1px solid var(--danger-bg) !important;
+  font-weight: 600;
+}
+
+button.danger-text:hover:not(:disabled),
+button.ghost.danger-text:hover:not(:disabled) {
+  background: var(--danger-bg-hover) !important;
+  border-color: var(--danger-bg-hover) !important;
+  color: var(--danger-ink) !important;
+}
+
+button.danger-text:disabled,
+button.ghost.danger-text:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.list-actions button.ghost.danger-text,
+.list-actions .ghost.danger-text,
+.backup-version-actions button.ghost.danger-text,
+.modal .actions button.danger-text,
+.delete-version-box .actions button.danger-text,
+.actions button.danger-text {
+  background: var(--danger-bg) !important;
+  color: var(--danger-ink) !important;
+  border-color: var(--danger-bg) !important;
+}
+
+.list-actions button.ghost.danger-text:hover:not(:disabled),
+.list-actions .ghost.danger-text:hover:not(:disabled),
+.backup-version-actions button.ghost.danger-text:hover:not(:disabled),
+.modal .actions button.danger-text:hover:not(:disabled),
+.delete-version-box .actions button.danger-text:hover:not(:disabled),
+.actions button.danger-text:hover:not(:disabled) {
+  background: var(--danger-bg-hover) !important;
+  border-color: var(--danger-bg-hover) !important;
+  color: var(--danger-ink) !important;
+}
+
 button.secondary {
   width: auto;
   flex: 0 0 auto;
@@ -1233,6 +1294,13 @@ input[type="date"] {
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
 }
 
 .btn-primary {
@@ -1672,8 +1740,21 @@ ol.plain.numbered li {
   flex-shrink: 0;
 }
 
-.wide-explore {
-  min-width: 0;
+.explore-empty {
+  padding: 1.5rem 0 0.5rem;
+  text-align: center;
+}
+
+.explore-empty h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.explore-empty-cta {
+  display: inline-flex;
+  margin-top: 1rem;
+  width: auto;
+  text-decoration: none;
 }
 
 .versions li {
@@ -1848,6 +1929,15 @@ button.version-delete {
   align-self: center;
   padding: 0.45rem 0.65rem;
   font-size: 0.82rem;
+  background: var(--danger-bg) !important;
+  color: var(--danger-ink) !important;
+  border: 1px solid var(--danger-bg) !important;
+}
+
+button.version-delete:hover:not(:disabled) {
+  background: var(--danger-bg-hover) !important;
+  border-color: var(--danger-bg-hover) !important;
+  color: var(--danger-ink) !important;
 }
 
 .delete-version-box {
@@ -1997,4 +2087,21 @@ button.crumb {
   .dash-overview .dash-tile:last-child {
     border-bottom: 0;
   }
+}
+
+.offsite-banner {
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--accent);
+}
+
+.offsite-banner.error {
+  border-left-color: var(--danger);
+}
+
+.offsite-banner.warn {
+  border-left-color: #c9a227;
+}
+
+.offsite-banner p {
+  margin: 0.35rem 0 0.5rem;
 }

@@ -21,6 +21,7 @@ type Settings = {
   alertBackupFailure: boolean;
   alertRestoreSuccess: boolean;
   alertRestoreFailure: boolean;
+  alertOffsiteFailure: boolean;
   timezone?: string;
 };
 
@@ -36,7 +37,11 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
 const ALERTS: {
   key: keyof Pick<
     Settings,
-    "alertBackupFailure" | "alertBackupSuccess" | "alertRestoreFailure" | "alertRestoreSuccess"
+    | "alertBackupFailure"
+    | "alertBackupSuccess"
+    | "alertRestoreFailure"
+    | "alertRestoreSuccess"
+    | "alertOffsiteFailure"
   >;
   label: string;
   desc: string;
@@ -45,6 +50,7 @@ const ALERTS: {
   { key: "alertBackupSuccess", label: "Backup succeeded", desc: "After each successful backup job" },
   { key: "alertRestoreFailure", label: "Restore failed", desc: "When a restore job errors" },
   { key: "alertRestoreSuccess", label: "Restore succeeded", desc: "After a restore completes" },
+  { key: "alertOffsiteFailure", label: "Off-site mirror failed", desc: "When R2 sync fails (deduplicated per error)" },
 ];
 
 export default function SettingsPage() {
@@ -72,6 +78,7 @@ export default function SettingsPage() {
     alertBackupFailure: true,
     alertRestoreSuccess: false,
     alertRestoreFailure: true,
+    alertOffsiteFailure: true,
   });
   const [smtpPassword, setSmtpPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -114,6 +121,7 @@ export default function SettingsPage() {
           alertBackupFailure: s.alertBackupFailure ?? true,
           alertRestoreSuccess: s.alertRestoreSuccess ?? false,
           alertRestoreFailure: s.alertRestoreFailure ?? true,
+          alertOffsiteFailure: s.alertOffsiteFailure ?? true,
         }),
       )
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load settings"));
@@ -157,6 +165,11 @@ export default function SettingsPage() {
       mailMode: next.mailMode === "smtp" ? "smtp" : "local",
       notifyTo: next.notifyTo || next.smtpTo || f.notifyTo,
       hasSmtpPassword: next.hasSmtpPassword,
+      alertBackupSuccess: next.alertBackupSuccess ?? false,
+      alertBackupFailure: next.alertBackupFailure ?? true,
+      alertRestoreSuccess: next.alertRestoreSuccess ?? false,
+      alertRestoreFailure: next.alertRestoreFailure ?? true,
+      alertOffsiteFailure: next.alertOffsiteFailure ?? true,
     }));
   };
 

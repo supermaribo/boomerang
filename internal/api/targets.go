@@ -29,6 +29,7 @@ func (s *Server) routesTargets(r chi.Router) {
 	r.Post("/file-servers/{id}/test", s.handleTestFileServerByID)
 	r.Post("/file-servers/{id}/browse", s.handleBrowseFileServerByID)
 	r.Post("/file-servers/{id}/backup", s.handleBackupFileServer)
+	r.Post("/file-servers/backup-all", s.handleBackupAllFileServers)
 	r.Get("/file-servers/{id}/versions", s.handleListFileVersions)
 	r.Get("/file-servers/{id}/versions/{vid}", s.handleGetFileVersion)
 	r.Get("/file-servers/{id}/versions/{vid}/tree", s.handleFileVersionTree)
@@ -46,12 +47,14 @@ func (s *Server) routesTargets(r chi.Router) {
 	r.Put("/databases/{id}", s.handleUpdateDatabase)
 	r.Delete("/databases/{id}", s.handleDeleteDatabase)
 	r.Post("/databases/{id}/backup", s.handleBackupDatabase)
+	r.Post("/databases/backup-all", s.handleBackupAllDatabases)
 	r.Post("/databases/browse-tables", s.handleBrowseDatabaseTables)
 	r.Post("/databases/{id}/browse-tables", s.handleBrowseDatabaseTablesByID)
 	r.Get("/databases/{id}/versions", s.handleListDBVersions)
 
 	r.Get("/jobs/{id}", s.handleGetJob)
 	r.Get("/jobs/{id}/logs", s.handleGetJobLogs)
+	r.Post("/jobs/{id}/cancel", s.handleCancelJob)
 }
 
 type fileServerDTO struct {
@@ -566,6 +569,86 @@ func (s *Server) handleBackupFileServer(w http.ResponseWriter, r *http.Request) 
 	}
 	_ = s.store.Audit("file_backup", id)
 	writeJSON(w, http.StatusAccepted, map[string]string{"jobId": jobID})
+}
+
+func (s *Server) handleBackupAllFileServers(w http.ResponseWriter, _ *http.Request) {
+	if s.runner == nil {
+		writeErr(w, http.StatusServiceUnavailable, "backup runner unavailable")
+		return
+	}
+	list, err := s.store.ListFileServers()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	type jobRef struct {
+		TargetID   string `json:"targetId"`
+		TargetName string `json:"targetName"`
+		JobID      string `json:"jobId"`
+		Error      string `json:"error,omitempty"`
+	}
+	var started []jobRef
+	for _, f := range list {
+		if !f.Enabled {
+			continue
+		}
+		jobID, err := s.runner.StartFileBackup(f.ID)
+		ref := jobRef{TargetID: f.ID, TargetName: f.Name, JobID: jobID}
+		if err != nil {
+			ref.Error = err.Error()
+		} else {
+			_ = s.store.Audit("file_backup", f.ID)
+		}
+		started = append(started, ref)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"jobs": started})
+}
+
+func (s *Server) handleBackupAllDatabases(w http.ResponseWriter, _ *http.Request) {
+	if s.runner == nil {
+		writeErr(w, http.StatusServiceUnavailable, "backup runner unavailable")
+		return
+	}
+	list, err := s.store.ListDatabases()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	type jobRef struct {
+		TargetID   string `json:"targetId"`
+		TargetName string `json:"targetName"`
+		JobID      string `json:"jobId"`
+		Error      string `json:"error,omitempty"`
+	}
+	var started []jobRef
+	for _, d := range list {
+		if !d.Enabled {
+			continue
+		}
+		jobID, err := s.runner.StartDBBackup(d.ID)
+		ref := jobRef{TargetID: d.ID, TargetName: d.Name, JobID: jobID}
+		if err != nil {
+			ref.Error = err.Error()
+		} else {
+			_ = s.store.Audit("db_backup", d.ID)
+		}
+		started = append(started, ref)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"jobs": started})
+}
+
+func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeErr(w, http.StatusServiceUnavailable, "backup runner unavailable")
+		return
+	}
+	jobID := chi.URLParam(r, "id")
+	if err := s.runner.CancelJob(jobID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = s.store.Audit("job_cancel", jobID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleListFileVersions(w http.ResponseWriter, r *http.Request) {

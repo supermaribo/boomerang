@@ -31,6 +31,7 @@ type Runner struct {
 	running int
 	max     int
 	busy    map[string]bool
+	cancel  map[string]bool
 	queue   []queuedWork
 
 	notifyLoad func() (notify.MailConfig, error)
@@ -53,6 +54,7 @@ func NewRunner(st *store.Store, box *crypto.Box, dataDir string, maxConcurrent i
 		DataDir: dataDir,
 		max:     maxConcurrent,
 		busy:    map[string]bool{},
+		cancel:  map[string]bool{},
 	}
 }
 
@@ -109,21 +111,120 @@ func (r *Runner) pumpLocked() {
 
 func (r *Runner) execute(w queuedWork) {
 	if r.Store != nil {
+		if j, _ := r.Store.GetJob(w.jobID); j != nil && j.Status == "cancelled" {
+			r.finishExecute(w)
+			return
+		}
 		_ = r.Store.UpdateJob(w.jobID, "running", "", time.Now().UTC(), nil)
 	}
+	if r.cancelled(w.jobID) {
+		r.cancelledDone(w.jobID)
+		r.finishExecute(w)
+		return
+	}
 	w.run()
+	r.finishExecute(w)
+}
 
+func (r *Runner) finishExecute(w queuedWork) {
 	r.mu.Lock()
 	r.running--
 	delete(r.busy, w.targetKey)
+	delete(r.cancel, w.jobID)
 	r.pumpLocked()
 	r.mu.Unlock()
+}
+
+func (r *Runner) cancelled(jobID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cancel[jobID]
+}
+
+func (r *Runner) CancelJob(jobID string) error {
+	if r.Store == nil {
+		return fmt.Errorf("store unavailable")
+	}
+	j, err := r.Store.GetJob(jobID)
+	if err != nil {
+		return err
+	}
+	if j == nil {
+		return fmt.Errorf("job not found")
+	}
+	switch j.Status {
+	case "succeeded", "failed", "cancelled":
+		return fmt.Errorf("job already finished")
+	case "running":
+		r.mu.Lock()
+		r.cancel[jobID] = true
+		r.mu.Unlock()
+		_ = r.Store.AppendJobLog(jobID, "cancel requested")
+		return nil
+	}
+	r.mu.Lock()
+	for i := 0; i < len(r.queue); i++ {
+		if r.queue[i].jobID == jobID {
+			r.queue = append(r.queue[:i], r.queue[i+1:]...)
+			break
+		}
+	}
+	r.mu.Unlock()
+	now := time.Now().UTC()
+	_ = r.Store.AppendJobLog(jobID, "cancelled before start")
+	_ = r.Store.UpdateJob(jobID, "cancelled", "cancelled by user", time.Time{}, &now)
+	return nil
+}
+
+func (r *Runner) cancelledDone(jobID string) {
+	now := time.Now().UTC()
+	_ = r.Store.AppendJobLog(jobID, "cancelled")
+	_ = r.Store.UpdateJob(jobID, "cancelled", "cancelled by user", time.Time{}, &now)
+}
+
+func (r *Runner) checkCancelled(jobID string) bool {
+	if !r.cancelled(jobID) {
+		return false
+	}
+	r.cancelledDone(jobID)
+	return true
 }
 
 func (r *Runner) Stats() (running, queued int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.running, len(r.queue)
+}
+
+func (r *Runner) StartDBVerify(databaseID, versionID string) (string, error) {
+	jobID := uuid.NewString()
+	if err := r.Store.CreateJob(jobID, "db", databaseID, "verify"); err != nil {
+		return "", err
+	}
+	r.submit("db", databaseID, jobID, func() {
+		r.runDBVerify(jobID, databaseID, versionID)
+	})
+	return jobID, nil
+}
+
+func (r *Runner) runDBVerify(jobID, databaseID, versionID string) {
+	_ = r.Store.AppendJobLog(jobID, "starting database verify")
+	if r.checkCancelled(jobID) {
+		return
+	}
+	ver, err := r.Store.GetVersion(versionID)
+	if err != nil || ver == nil || ver.TargetType != "db" || ver.TargetID != databaseID || ver.Status != "succeeded" {
+		r.fail(jobID, "version not found or not successful")
+		return
+	}
+	if err := mysqlbackup.VerifyDBBackup(ver.PathOnDisk, r.Box); err != nil {
+		r.fail(jobID, err.Error())
+		return
+	}
+	now := time.Now().UTC()
+	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
+	_ = r.Store.AppendJobLog(jobID, "database backup verified OK")
+	r.notifyJob(jobID, false, "")
 }
 
 func (r *Runner) StartFileVerify(fileServerID, versionID string) (string, error) {
@@ -139,6 +240,9 @@ func (r *Runner) StartFileVerify(fileServerID, versionID string) (string, error)
 
 func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
 	_ = r.Store.AppendJobLog(jobID, "starting backup verify")
+	if r.checkCancelled(jobID) {
+		return
+	}
 	ver, err := r.Store.GetVersion(versionID)
 	if err != nil || ver == nil || ver.TargetID != fileServerID || ver.Status != "succeeded" {
 		r.fail(jobID, "version not found or not successful")
@@ -243,6 +347,9 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	}
 	defer vlog.Close()
 	log := func(line string) {
+		if r.checkCancelled(jobID) {
+			return
+		}
 		sink.log(line)
 		vlog.Log(line)
 	}
@@ -253,6 +360,10 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	log(fmt.Sprintf("started: %s", time.Now().UTC().Format(time.RFC3339)))
 
 	res, err := filebackup.Backup(target, outDir, opt, log)
+	if r.checkCancelled(jobID) {
+		_ = r.Store.UpdateVersion(versionID, "failed", 0)
+		return
+	}
 	if err != nil {
 		log("error: " + err.Error())
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
@@ -441,6 +552,9 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 	}
 	defer vlog.Close()
 	log := func(line string) {
+		if r.checkCancelled(jobID) {
+			return
+		}
 		sink.log(line)
 		vlog.Log(line)
 	}
@@ -451,6 +565,10 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 	log(fmt.Sprintf("started: %s", time.Now().UTC().Format(time.RFC3339)))
 
 	res, err := mysqlbackup.Backup(t, outDir, log)
+	if r.checkCancelled(jobID) {
+		_ = r.Store.UpdateVersion(versionID, "failed", 0)
+		return
+	}
 	if err != nil {
 		log("error: " + err.Error())
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
@@ -553,6 +671,10 @@ func (r *Runner) notifyJob(jobID string, failed bool, errMsg string) {
 }
 
 func (r *Runner) fail(jobID, msg string) {
+	if r.cancelled(jobID) {
+		r.cancelledDone(jobID)
+		return
+	}
 	now := time.Now().UTC()
 	msg = truncateJobMessage(msg)
 	_ = r.Store.AppendJobLog(jobID, "error: "+msg)

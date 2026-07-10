@@ -6,7 +6,7 @@ type Props = {
 
 const links = [
   { to: "/app", label: "Dashboard", end: true },
-  { to: "/app/file-servers", label: "File servers" },
+  { to: "/app/websites", label: "Websites" },
   { to: "/app/databases", label: "Databases" },
   { to: "/app/settings", label: "Settings" },
 ];

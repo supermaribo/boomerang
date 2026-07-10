@@ -5,6 +5,7 @@ import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
+import { pollJob } from "../lib/jobPoll";
 import { retentionSummary } from "../components/ScheduleRetention";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 import { formatApplianceDateTime } from "../lib/formatTime";
@@ -94,23 +95,38 @@ export default function Databases() {
     setInfo("");
     try {
       const res = await api<{ jobId: string }>(`/api/databases/${id}/backup`, { method: "POST" });
-      setInfo(`Backup started (job ${res.jobId}).`);
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 700));
-        const job = await api<{ status: string; error: string }>(`/api/jobs/${res.jobId}`);
-        const logs = await api<{ lines: string[] }>(`/api/jobs/${res.jobId}/logs`);
-        if (logs.lines?.length) setInfo(logs.lines.slice(-2).join(" · "));
-        if (job.status === "succeeded" || job.status === "failed") {
-          setInfo(
-            job.status === "succeeded"
-              ? `Backup succeeded. ${logs.lines?.slice(-1)[0] || ""}`
-              : `Backup failed: ${job.error}`,
-          );
-          break;
-        }
-      }
+      const result = await pollJob(res.jobId, (lines) => setInfo(lines.join(" · ")), {
+        maxAttempts: 90,
+        intervalMs: 700,
+      });
+      setInfo(
+        result.status === "succeeded"
+          ? `Backup succeeded. ${result.lastLines.slice(-1)[0] || ""}`
+          : `Backup failed: ${result.error || result.lastLines.slice(-1)[0] || ""}`,
+      );
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "backup failed");
+    }
+  };
+
+  const backupAll = async () => {
+    setError("");
+    setInfo("");
+    try {
+      const res = await api<{ jobs: { targetName: string; jobId: string; error?: string }[] }>(
+        "/api/databases/backup-all",
+        { method: "POST" },
+      );
+      const ok = res.jobs.filter((j) => !j.error);
+      setInfo(`Started ${ok.length} database backup job(s)…`);
+      for (const j of ok) {
+        await pollJob(j.jobId, () => {}, { maxAttempts: 90, intervalMs: 700 });
+      }
+      setInfo(`Queued ${ok.length} database backup(s).`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "bulk backup failed");
     }
   };
 
@@ -122,9 +138,16 @@ export default function Databases() {
           <h1>Databases</h1>
           <p className="muted">Configured MySQL backup targets</p>
         </div>
-        <Link className="btn-primary" to="/app/databases/new">
-          Add database
-        </Link>
+        <div className="head-actions">
+          <Link className="btn-primary" to="/app/databases/new">
+            Add database
+          </Link>
+          {list.some((d) => d.enabled) && (
+            <button type="button" className="ghost" onClick={() => void backupAll()}>
+              Backup all
+            </button>
+          )}
+        </div>
       </header>
 
       {error && <p className="err pad">{error}</p>}

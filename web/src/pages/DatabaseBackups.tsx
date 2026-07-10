@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../App";
 import { useTimezone } from "../context/Timezone";
 import { formatApplianceDateTime } from "../lib/formatTime";
+import { pollJob, downloadDBBackup } from "../lib/jobPoll";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
@@ -15,12 +16,20 @@ type Version = {
   createdAt: string;
 };
 
+type RestorePreview = {
+  tables: { name: string; inBackup: boolean; inLive: boolean }[];
+  onlyBackup: string[];
+  onlyLive: string[];
+  message: string;
+};
+
 type RestoreState = {
   db: Database;
   vid: string;
   tables: string[];
   selected: Record<string, boolean>;
   confirm: string;
+  preview: RestorePreview | null;
 };
 
 type DeleteVersionState = {
@@ -62,6 +71,21 @@ export default function DatabaseBackups() {
     void load().catch((e) => setError(e instanceof Error ? e.message : "load failed"));
   }, [id]);
 
+  const loadRestorePreview = async (state: RestoreState) => {
+    const tables = state.tables.filter((t) => state.selected[t]);
+    const preview = await api<RestorePreview>(
+      `/api/databases/${state.db.id}/versions/${state.vid}/restore-preview`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          confirmName: state.db.name,
+          tables: tables.length === state.tables.length ? [] : tables,
+        }),
+      },
+    );
+    setRestore((r) => (r ? { ...r, preview } : r));
+  };
+
   const openRestore = async (vid: string) => {
     if (!db) return;
     setError("");
@@ -71,9 +95,26 @@ export default function DatabaseBackups() {
       );
       const selected: Record<string, boolean> = {};
       for (const t of tables) selected[t] = true;
-      setRestore({ db, vid, tables, selected, confirm: "" });
+      const state: RestoreState = { db, vid, tables, selected, confirm: "", preview: null };
+      setRestore(state);
+      await loadRestorePreview(state);
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not load tables");
+    }
+  };
+
+  const toggleTable = async (table: string) => {
+    if (!restore) return;
+    const next = {
+      ...restore,
+      selected: { ...restore.selected, [table]: !restore.selected[table] },
+      preview: null,
+    };
+    setRestore(next);
+    try {
+      await loadRestorePreview(next);
+    } catch {
+      /* preview optional */
     }
   };
 
@@ -99,23 +140,54 @@ export default function DatabaseBackups() {
         },
       );
       setRestore(null);
-      setInfo("Restore started…");
-      for (let i = 0; i < 90; i++) {
-        await new Promise((r) => setTimeout(r, 700));
-        const job = await api<{ status: string; error: string }>(`/api/jobs/${res.jobId}`);
-        const logs = await api<{ lines: string[] }>(`/api/jobs/${res.jobId}/logs`);
-        if (logs.lines?.length) setInfo(logs.lines.slice(-2).join(" · "));
-        if (job.status === "succeeded" || job.status === "failed") {
-          setInfo(
-            job.status === "succeeded"
-              ? `Restore succeeded. ${logs.lines?.slice(-1)[0] || ""}`
-              : `Restore failed: ${job.error}`,
-          );
-          break;
-        }
-      }
+      const result = await pollJob(res.jobId, (lines) => setInfo(lines.join(" · ")), {
+        maxAttempts: 90,
+        intervalMs: 700,
+      });
+      setInfo(
+        result.status === "succeeded"
+          ? `Restore succeeded. ${result.lastLines.slice(-1)[0] || ""}`
+          : `Restore failed: ${result.error || result.lastLines.slice(-1)[0] || ""}`,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "restore failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runVerify = async (vid: string) => {
+    if (!db) return;
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      const res = await api<{ jobId: string }>(
+        `/api/databases/${db.id}/versions/${vid}/verify`,
+        { method: "POST" },
+      );
+      const result = await pollJob(res.jobId, (lines) => setInfo(lines.join(" · ")));
+      setInfo(
+        result.status === "succeeded"
+          ? "Backup verified OK."
+          : `Verify failed: ${result.error || ""}`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "verify failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runDownload = async (vid: string) => {
+    if (!db) return;
+    setBusy(true);
+    setError("");
+    try {
+      await downloadDBBackup(db.id, vid);
+      setInfo("Download started.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "download failed");
     } finally {
       setBusy(false);
     }
@@ -172,17 +244,41 @@ export default function DatabaseBackups() {
           <p className="muted">
             Leave all tables selected for a full restore, or pick specific tables.
           </p>
+          {restore.preview && (
+            <div className="tile restore-preview">
+              <p className="muted small">{restore.preview.message}</p>
+              {restore.preview.onlyBackup.length > 0 && (
+                <p className="muted small">
+                  Only in backup:{" "}
+                  <code>{restore.preview.onlyBackup.join(", ")}</code>
+                </p>
+              )}
+              {restore.preview.onlyLive.length > 0 && (
+                <p className="muted small">
+                  Only on live DB: <code>{restore.preview.onlyLive.join(", ")}</code>
+                </p>
+              )}
+              <ul className="restore-preview-list plain">
+                {restore.preview.tables.map((row) => (
+                  <li key={row.name}>
+                    <code>{row.name}</code>
+                    <span className="muted small">
+                      {row.inBackup ? "backup" : ""}
+                      {row.inBackup && row.inLive ? " · " : ""}
+                      {row.inLive ? "live" : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="table-pick">
             {restore.tables.map((t) => (
               <label key={t} className="check">
                 <input
                   type="checkbox"
                   checked={!!restore.selected[t]}
-                  onChange={() =>
-                    setRestore((r) =>
-                      r ? { ...r, selected: { ...r.selected, [t]: !r.selected[t] } } : r,
-                    )
-                  }
+                  onChange={() => void toggleTable(t)}
                 />
                 <code>{t}</code>
               </label>
@@ -272,14 +368,32 @@ export default function DatabaseBackups() {
                     Log
                   </button>
                   {v.status === "succeeded" && (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={busy}
-                      onClick={() => void openRestore(v.id)}
-                    >
-                      Restore
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={busy}
+                        onClick={() => void runVerify(v.id)}
+                      >
+                        Verify
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={busy}
+                        onClick={() => void runDownload(v.id)}
+                      >
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={busy}
+                        onClick={() => void openRestore(v.id)}
+                      >
+                        Restore
+                      </button>
+                    </>
                   )}
                   <button
                     type="button"

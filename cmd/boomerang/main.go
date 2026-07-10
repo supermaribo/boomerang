@@ -86,6 +86,7 @@ func main() {
 	}
 	runner.SetNotifier(srv.LoadMail, nameFor)
 	sched.SetMissedNotifier(srv.LoadMail, nameFor)
+	offsiteSyncer.SetNotifier(srv.LoadMail)
 
 	sched.Start()
 	defer sched.Stop()

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/boomerang-backup/boomerang/internal/crypto"
+	"github.com/boomerang-backup/boomerang/internal/notify"
 	"github.com/boomerang-backup/boomerang/internal/store"
 )
 
@@ -20,10 +21,16 @@ type Syncer struct {
 	mu      sync.Mutex
 	running bool
 	pending bool
+
+	notifyLoad func() (notify.MailConfig, error)
 }
 
 func NewSyncer(st *store.Store, box *crypto.Box, dataDir string) *Syncer {
 	return &Syncer{Store: st, Box: box, DataDir: dataDir}
+}
+
+func (s *Syncer) SetNotifier(load func() (notify.MailConfig, error)) {
+	s.notifyLoad = load
 }
 
 // Schedule queues a mirror run. Multiple calls while a sync is running coalesce into one follow-up.
@@ -104,7 +111,29 @@ func (s *Syncer) mirror(ctx context.Context, cfg Config) (Result, error) {
 	_ = s.Store.SetMeta("offsite_last_bytes", fmt.Sprintf("%d", res.Bytes))
 	if err != nil {
 		_ = s.Store.SetMeta("offsite_last_error", err.Error())
+		s.alertFailure(err.Error())
 		return res, err
 	}
+	_ = s.Store.SetMeta("offsite_last_error", "")
+	_ = s.Store.SetMeta("offsite_last_alert_error", "")
 	return res, nil
+}
+
+func (s *Syncer) alertFailure(errMsg string) {
+	if s.notifyLoad == nil || s.Store == nil {
+		return
+	}
+	last, _, _ := s.Store.GetMeta("offsite_last_alert_error")
+	if last == errMsg {
+		return
+	}
+	cfg, err := s.notifyLoad()
+	if err != nil || !cfg.Ready() || !cfg.Alerts.OffsiteFailure {
+		return
+	}
+	if err := notify.OffsiteMirrorEmail(cfg, errMsg); err != nil {
+		log.Printf("off-site alert email: %v", err)
+		return
+	}
+	_ = s.Store.SetMeta("offsite_last_alert_error", errMsg)
 }

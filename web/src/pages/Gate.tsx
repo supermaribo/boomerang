@@ -159,7 +159,7 @@ export default function Gate({ setupRequired, onDone }: Props) {
               ? mode === "new"
                 ? "Set the admin password for a new appliance."
                 : "Import a previous appliance from your Cloudflare R2 mirror."
-              : "Sign in to manage file servers, databases, and rollbacks."}
+              : "Sign in to manage websites, databases, and rollbacks."}
           </p>
 
           {setupRequired && (

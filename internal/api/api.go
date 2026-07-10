@@ -248,6 +248,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.sess, c.Value)
 		s.mu.Unlock()
+		_ = s.store.DeleteSession(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "boomerang_session",
@@ -274,9 +275,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 	backupCount, _ := s.store.CountBackupVersions()
 	storageBytes, _ := s.store.SumBackupBytes()
 	forecast, _ := s.store.StorageForecast(7)
-	recent, _ := s.store.ListRecentVersions(15, "")
+	recent, _ := s.store.ListRecentVersions(10, "")
 	jobs, _ := s.store.ListRecentJobs(10)
 	writeJSON(w, http.StatusOK, map[string]any{
+		"websites":         fsCount,
 		"fileServers":      fsCount,
 		"databases":        dbCount,
 		"backupCount":      backupCount,
@@ -286,7 +288,41 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 		"recentBackups":    recent,
 		"recentJobs":       jobs,
 		"applianceStatus":  s.applianceStatus(),
+		"offsiteBanner":    s.offsiteBanner(backupCount),
 	})
+}
+
+func (s *Server) offsiteBanner(backupCount int) map[string]any {
+	cfg, err := offsite.LoadConfig(s.store, s.box)
+	if err != nil || !cfg.Enabled {
+		return map[string]any{"show": false}
+	}
+	st := offsite.LoadStatus(s.store)
+	if s.offsite != nil && s.offsite.IsSyncing() {
+		return map[string]any{"show": false}
+	}
+	if st.LastError != "" {
+		return map[string]any{
+			"show": true, "level": "error",
+			"message": "Off-site mirror failed: " + st.LastError,
+		}
+	}
+	if backupCount == 0 {
+		return map[string]any{"show": false}
+	}
+	if st.LastSync == "" {
+		return map[string]any{
+			"show": true, "level": "warn",
+			"message": "Off-site mirror is enabled but no successful sync yet.",
+		}
+	}
+	if t, ok := parseHealthTime(st.LastSync); ok && time.Since(t) > 48*time.Hour {
+		return map[string]any{
+			"show": true, "level": "warn",
+			"message": "Off-site mirror has not run in over 48 hours.",
+		}
+	}
+	return map[string]any{"show": false}
 }
 
 func (s *Server) requireAuth(next http.Handler) http.Handler {
@@ -299,9 +335,16 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		s.mu.Lock()
 		sess, ok := s.sess[c.Value]
 		epoch := s.store.SessionEpoch()
+		if !ok {
+			if dbEpoch, exp, found, err := s.store.GetSession(c.Value); err == nil && found {
+				sess = session{expires: exp, epoch: dbEpoch}
+				ok = true
+			}
+		}
 		if ok && time.Now().Before(sess.expires) && sess.epoch == epoch {
 			sess.expires = time.Now().Add(24 * time.Hour)
 			s.sess[c.Value] = sess
+			_ = s.store.SaveSession(c.Value, epoch, sess.expires)
 			s.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
@@ -310,6 +353,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			delete(s.sess, c.Value)
 		}
 		s.mu.Unlock()
+		_ = s.store.DeleteSession(c.Value)
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 	})
 }
@@ -320,9 +364,12 @@ func (s *Server) createSession() (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(b)
+	exp := time.Now().Add(24 * time.Hour)
+	epoch := s.store.SessionEpoch()
 	s.mu.Lock()
-	s.sess[token] = session{expires: time.Now().Add(24 * time.Hour), epoch: s.store.SessionEpoch()}
+	s.sess[token] = session{expires: exp, epoch: epoch}
 	s.mu.Unlock()
+	_ = s.store.SaveSession(token, epoch, exp)
 	return token, nil
 }
 

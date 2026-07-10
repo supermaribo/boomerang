@@ -17,10 +17,11 @@ const (
 
 // AlertPrefs controls which job outcomes trigger email.
 type AlertPrefs struct {
-	BackupSuccess  bool
-	BackupFailure  bool
-	RestoreSuccess bool
-	RestoreFailure bool
+	BackupSuccess   bool
+	BackupFailure   bool
+	RestoreSuccess  bool
+	RestoreFailure  bool
+	OffsiteFailure  bool
 }
 
 type MailConfig struct {
@@ -88,6 +89,18 @@ Time:   %s
 Open Boomerang for details.
 `, targetName, kind, jobID, when)
 	}
+	return cfg.Send(subject, body)
+}
+
+func OffsiteMirrorEmail(cfg MailConfig, errMsg string) error {
+	subject := "[Boomerang] Off-site mirror failed"
+	body := fmt.Sprintf(`Boomerang could not mirror backups to off-site storage.
+
+Time:  %s
+Error: %s
+
+Check Settings → Off-site and the appliance logs. Local backups are unaffected.
+`, time.Now().Format(time.RFC3339), errMsg)
 	return cfg.Send(subject, body)
 }
 

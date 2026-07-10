@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/notify"
@@ -35,6 +37,9 @@ func (s *Server) routesExtra(r chi.Router) {
 	r.Post("/databases/{id}/versions/{vid}/restore", s.handleRestoreDatabase)
 	r.Get("/databases/{id}/versions/{vid}", s.handleGetDBVersion)
 	r.Get("/databases/{id}/versions/{vid}/tables", s.handleDBVersionTables)
+	r.Post("/databases/{id}/versions/{vid}/restore-preview", s.handleDBRestorePreview)
+	r.Post("/databases/{id}/versions/{vid}/verify", s.handleVerifyDBVersion)
+	r.Post("/databases/{id}/versions/{vid}/download", s.handleDownloadDBVersion)
 	r.Delete("/databases/{id}/versions/{vid}", s.handleDeleteDBVersion)
 }
 
@@ -65,7 +70,7 @@ func (s *Server) handleRecentBackups(w http.ResponseWriter, r *http.Request) {
 			if name == "" {
 				name = v.TargetID
 			}
-			url = "/app/file-servers/" + v.TargetID + "/backups?version=" + v.ID
+			url = "/app/websites/" + v.TargetID + "/backups?version=" + v.ID
 		} else if v.TargetType == "db" {
 			name = dname[v.TargetID]
 			if name == "" {
@@ -107,6 +112,7 @@ type settingsDTO struct {
 	AlertBackupFailure  bool   `json:"alertBackupFailure"`
 	AlertRestoreSuccess bool   `json:"alertRestoreSuccess"`
 	AlertRestoreFailure bool   `json:"alertRestoreFailure"`
+	AlertOffsiteFailure bool   `json:"alertOffsiteFailure"`
 	Timezone            string `json:"timezone"`
 }
 
@@ -177,6 +183,7 @@ func (s *Server) loadMail() (notify.MailConfig, error) {
 			BackupFailure:  boolMeta("alert_backup_failure", true),
 			RestoreSuccess: boolMeta("alert_restore_success", false),
 			RestoreFailure: boolMeta("alert_restore_failure", true),
+			OffsiteFailure: boolMeta("alert_offsite_failure", true),
 		},
 	}, nil
 }
@@ -232,6 +239,7 @@ func settingsToDTO(cfg notify.MailConfig) settingsDTO {
 		AlertBackupFailure:  cfg.Alerts.BackupFailure,
 		AlertRestoreSuccess: cfg.Alerts.RestoreSuccess,
 		AlertRestoreFailure: cfg.Alerts.RestoreFailure,
+		AlertOffsiteFailure: cfg.Alerts.OffsiteFailure,
 	}
 }
 
@@ -262,6 +270,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.SetMeta("alert_backup_failure", boolStr(req.AlertBackupFailure))
 	_ = s.store.SetMeta("alert_restore_success", boolStr(req.AlertRestoreSuccess))
 	_ = s.store.SetMeta("alert_restore_failure", boolStr(req.AlertRestoreFailure))
+	_ = s.store.SetMeta("alert_offsite_failure", boolStr(req.AlertOffsiteFailure))
 	_ = s.store.SetMeta("smtp_host", req.SMTPHost)
 	_ = s.store.SetMeta("smtp_port", strconv.Itoa(req.SMTPPort))
 	_ = s.store.SetMeta("smtp_user", req.SMTPUser)
@@ -366,6 +375,70 @@ func (s *Server) handleRestoreDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.store.Audit("db_restore", dbID+":"+vid)
 	writeJSON(w, http.StatusAccepted, map[string]string{"jobId": jobID})
+}
+
+func (s *Server) handleDBRestorePreview(w http.ResponseWriter, r *http.Request) {
+	dbID := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	db, err := s.store.GetDatabase(dbID)
+	if err != nil || db == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	v, err := s.store.GetVersion(vid)
+	if err != nil || v == nil || v.TargetType != "db" || v.TargetID != dbID || v.Status != "succeeded" {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req dbRestoreReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	t, err := s.runner.MySQLTarget(db)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	preview, err := mysqlbackup.BuildRestorePreview(s.box, t, v.PathOnDisk, req.Tables)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (s *Server) handleVerifyDBVersion(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeErr(w, http.StatusServiceUnavailable, "backup runner unavailable")
+		return
+	}
+	dbID := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	jobID, err := s.runner.StartDBVerify(dbID, vid)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = s.store.Audit("db_verify", dbID+":"+vid)
+	writeJSON(w, http.StatusAccepted, map[string]string{"jobId": jobID})
+}
+
+func (s *Server) handleDownloadDBVersion(w http.ResponseWriter, r *http.Request) {
+	dbID := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	v, err := s.store.GetVersion(vid)
+	if err != nil || v == nil || v.TargetType != "db" || v.TargetID != dbID {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if v.Status != "succeeded" {
+		writeErr(w, http.StatusBadRequest, "version is not a successful backup")
+		return
+	}
+	filename := fmt.Sprintf("boomerang-db-%s-%s.sql", dbID[:8], time.Now().UTC().Format("20060102-150405"))
+	w.Header().Set("Content-Type", "application/sql")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	if err := mysqlbackup.StreamSQL(s.box, v.PathOnDisk, w); err != nil {
+		log.Printf("db download: %v", err)
+	}
 }
 
 func (s *Server) handleDeleteDBVersion(w http.ResponseWriter, r *http.Request) {

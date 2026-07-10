@@ -29,6 +29,7 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	_ = s.PruneSessions()
 	return s, nil
 }
 
@@ -122,6 +123,7 @@ func (s *Store) SessionEpoch() int {
 }
 
 func (s *Store) BumpSessionEpoch() error {
+	_ = s.DeleteAllSessions()
 	return s.SetMeta("session_epoch", fmt.Sprintf("%d", s.SessionEpoch()+1))
 }
 

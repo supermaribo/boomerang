@@ -76,7 +76,7 @@ export default function ExploreBackups() {
     try {
       fs = await api<ServerMeta>(`/api/file-servers/${id}`);
     } catch {
-      navigate("/app/file-servers", { replace: true });
+      navigate("/app/websites", { replace: true });
       return;
     }
     const vs = await api<Version[]>(`/api/file-servers/${id}/versions`);
@@ -332,8 +332,8 @@ export default function ExploreBackups() {
             )}
           </p>
         </div>
-        <Link className="ghost btn-link explore-back-btn" to="/app/file-servers">
-          Back to file servers
+        <Link className="ghost btn-link explore-back-btn" to="/app/websites">
+          Back to websites
         </Link>
       </header>
 
@@ -415,7 +415,7 @@ export default function ExploreBackups() {
               Permanently delete this backup? Incremental backups that depend on it must be
               removed first.
             </p>
-            <label>Type file server name ({server?.name}) to confirm</label>
+            <label>Type website name ({server?.name}) to confirm</label>
             <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
             <div className="actions">
               <button
@@ -441,8 +441,22 @@ export default function ExploreBackups() {
           </div>
         )}
 
-        {!vid && versions.length === 0 && (
-          <p className="muted">Run a backup from the file servers page to explore files here.</p>
+        {!vid && versions.length === 0 && server && (
+          <div className="explore-empty">
+            <h2>No backups yet</h2>
+            <p className="muted">
+              <strong>{server.name}</strong> has never completed a backup, so there is nothing to
+              browse here.
+            </p>
+            <p className="muted small">
+              Use <strong>Backup now</strong> on the{" "}
+              <Link to="/app/websites">websites</Link> page to run the first backup, or wait
+              for the next scheduled run.
+            </p>
+            <Link className="btn-primary explore-empty-cta" to="/app/websites">
+              Go to websites
+            </Link>
+          </div>
         )}
 
         {vid && panel === "log" && (
@@ -515,7 +529,7 @@ export default function ExploreBackups() {
               <p className="muted">
                 {selectedPaths.length} selected. This overwrites matching files on the live server.
               </p>
-              <label>Type file server name ({server?.name}) to confirm</label>
+              <label>Type website name ({server?.name}) to confirm</label>
               <input value={confirm} onChange={(e) => setConfirm(e.target.value)} />
               <div className="actions">
                 <button

@@ -8,6 +8,7 @@ import SiteFooter from "../components/SiteFooter";
 import TargetHealthBadge, { type TargetHealthRow } from "../components/TargetHealthBadge";
 
 type Dash = {
+  websites?: number;
   fileServers: number;
   databases: number;
   backupCount: number;
@@ -15,11 +16,14 @@ type Dash = {
   storageForecast?: {
     currentBytes: number;
     dailyBytes: number;
+    netDailyBytes?: number;
+    steadyStateBytes?: number;
     projected30Day: number;
     sampleDays: number;
   };
   dataDir: string;
   applianceStatus?: StatusItem[];
+  offsiteBanner?: { show: boolean; level?: string; message?: string };
 };
 
 type StatusItem = {
@@ -51,17 +55,10 @@ function fmtBytes(n: number) {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function parseWhen(s: string) {
-  const d = new Date(s.includes("T") ? s : `${s}Z`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function fmtDate(s: string, timeZone: string) {
-  return formatApplianceDate(s, timeZone);
-}
-
-function fmtTime(s: string, timeZone: string) {
-  return formatApplianceTime(s, timeZone);
+function est30Days(forecast: NonNullable<Dash["storageForecast"]>) {
+  const projected = forecast.projected30Day;
+  const cap = forecast.steadyStateBytes ?? 0;
+  return cap > projected ? cap : projected;
 }
 
 function RecentBackupList({ rows, timeZone }: { rows: RecentRow[]; timeZone: string }) {
@@ -78,7 +75,8 @@ function RecentBackupList({ rows, timeZone }: { rows: RecentRow[]; timeZone: str
               <span className={`pill ${b.status}`}>{b.status}</span>
             </div>
             <p className="muted small dash-backup-meta">
-              {fmtBytes(b.bytes)} · {fmtDate(b.createdAt, timeZone)} · {fmtTime(b.createdAt, timeZone)}
+              {fmtBytes(b.bytes)} · {formatApplianceDate(b.createdAt, timeZone)} ·{" "}
+              {formatApplianceTime(b.createdAt, timeZone)}
             </p>
           </div>
           {b.exploreUrl ? (
@@ -128,12 +126,14 @@ export default function Dashboard({ onLogout }: Props) {
   const [error, setError] = useState("");
 
   const [targetHealth, setTargetHealth] = useState<TargetHealthRow[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [info, setInfo] = useState("");
 
   useEffect(() => {
     Promise.all([
       api<Dash>("/api/dashboard"),
-      api<RecentRow[]>("/api/backups/recent?limit=15&type=file"),
-      api<RecentRow[]>("/api/backups/recent?limit=15&type=db"),
+      api<RecentRow[]>("/api/backups/recent?limit=10&type=file"),
+      api<RecentRow[]>("/api/backups/recent?limit=10&type=db"),
       api<{ targets: TargetHealthRow[] }>("/api/target-health"),
     ])
       .then(([d, files, dbs, health]) => {
@@ -145,15 +145,59 @@ export default function Dashboard({ onLogout }: Props) {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
   }, []);
 
+  const websiteCount = data?.websites ?? data?.fileServers;
+
+  const backupAllWebsites = async () => {
+    setBulkBusy(true);
+    setError("");
+    try {
+      const res = await api<{ jobs: { jobId: string; error?: string }[] }>(
+        "/api/file-servers/backup-all",
+        { method: "POST" },
+      );
+      const n = res.jobs.filter((j) => !j.error).length;
+      setInfo(`Started ${n} website backup job(s). Check Websites for progress.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "bulk backup failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <div className="shell">
       <Nav onLogout={() => void onLogout()} />
-      <header className="page-head">
-        <h1>Dashboard</h1>
-        <p className="muted">Overview and recent activity</p>
+      <header className="page-head row-head">
+        <div>
+          <h1>Dashboard</h1>
+          <p className="muted">Overview and recent activity</p>
+        </div>
+        {(websiteCount ?? 0) > 0 && (
+          <div className="head-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={bulkBusy}
+              onClick={() => void backupAllWebsites()}
+            >
+              {bulkBusy ? "Starting…" : "Backup all now"}
+            </button>
+          </div>
+        )}
       </header>
 
       {error && <p className="err pad">{error}</p>}
+      {info && <p className="ok pad">{info}</p>}
+
+      {data?.offsiteBanner?.show && (
+        <section className={`tile offsite-banner ${data.offsiteBanner.level || "warn"}`}>
+          <strong>Off-site mirror</strong>
+          <p>{data.offsiteBanner.message}</p>
+          <Link className="text-link" to="/app/settings?tab=offsite">
+            Check off-site settings →
+          </Link>
+        </section>
+      )}
 
       {targetHealth.some((t) => t.health === "error" || t.health === "warning") && (
         <section className="tile target-health-panel">
@@ -175,9 +219,9 @@ export default function Dashboard({ onLogout }: Props) {
       <section className="tile dash-overview-panel">
         <div className="dash-overview">
           <article className="dash-tile">
-            <h2>File servers</h2>
-            <p className="stat">{data?.fileServers ?? "—"}</p>
-            <Link className="text-link" to="/app/file-servers">
+            <h2>Websites</h2>
+            <p className="stat">{websiteCount ?? "—"}</p>
+            <Link className="text-link" to="/app/websites">
               Manage →
             </Link>
           </article>
@@ -198,9 +242,10 @@ export default function Dashboard({ onLogout }: Props) {
           <article className="dash-tile">
             <h2>Storage</h2>
             <p className="stat stat-compact">{data ? fmtBytes(data.storageBytes) : "—"}</p>
-            {data?.storageForecast && data.storageForecast.dailyBytes > 0 && (
+            {data?.storageForecast &&
+              (data.storageForecast.netDailyBytes ?? data.storageForecast.dailyBytes) > 0 && (
               <p className="muted small dash-meta">
-                ~Est {fmtBytes(data.storageForecast.projected30Day)} in 30 days
+                ~Est {fmtBytes(est30Days(data.storageForecast))} in 30 days
               </p>
             )}
             <p className="muted small dash-meta">
@@ -213,9 +258,9 @@ export default function Dashboard({ onLogout }: Props) {
       <div className="dash-recents" id="recent-backups">
         <section className="tile dash-section">
           <div className="section-head">
-            <h2>Recent file backups</h2>
-            <Link className="text-link" to="/app/file-servers">
-              All file servers →
+            <h2>Recent website backups</h2>
+            <Link className="text-link" to="/app/websites">
+              All websites →
             </Link>
           </div>
           <RecentBackupList rows={fileBackups} timeZone={timezone} />

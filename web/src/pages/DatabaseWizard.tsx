@@ -279,12 +279,12 @@ export default function DatabaseWizard() {
             <label>SSH tunnel</label>
             <select value={form.tunnelMode} onChange={(e) => set("tunnelMode", e.target.value)}>
               <option value="none">None (direct TCP)</option>
-              <option value="fileserver">Via existing file server SSH</option>
+              <option value="fileserver">Via existing website SSH</option>
               <option value="inline">Inline SSH credentials</option>
             </select>
             {form.tunnelMode === "fileserver" && (
               <>
-                <label>File server</label>
+                <label>Website</label>
                 <select
                   value={form.fileServerId}
                   onChange={(e) => set("fileServerId", e.target.value)}

@@ -88,6 +88,10 @@ export default function App() {
                 />
               }
             />
+            <Route path="/app/websites" element={<FileServers />} />
+            <Route path="/app/websites/new" element={<FileServerWizard />} />
+            <Route path="/app/websites/:id/edit" element={<FileServerWizard />} />
+            <Route path="/app/websites/:id/backups" element={<ExploreBackups />} />
             <Route path="/app/file-servers" element={<FileServers />} />
             <Route path="/app/file-servers/new" element={<FileServerWizard />} />
             <Route path="/app/file-servers/:id/edit" element={<FileServerWizard />} />
