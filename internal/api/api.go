@@ -17,6 +17,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
+	setupauth "github.com/boomerang-backup/boomerang/internal/setup"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/boomerang-backup/boomerang/internal/tzutil"
 	"github.com/go-chi/chi/v5"
@@ -35,6 +36,7 @@ type Server struct {
 	mu     sync.Mutex
 	sess   map[string]session
 	loginN map[string][]time.Time
+	setupN map[string][]time.Time
 }
 
 type session struct {
@@ -51,6 +53,7 @@ func New(cfg *config.Config, st *store.Store, box *crypto.Box, webFS fs.FS, runn
 		runner: runner,
 		sess:   map[string]session{},
 		loginN: map[string][]time.Time{},
+		setupN: map[string][]time.Time{},
 	}
 }
 
@@ -80,7 +83,7 @@ func (s *Server) Handler() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Get("/me", s.handleMe)
-			r.Get("/dashboard", s.handleDashboard)
+			r.Get("/target-health", s.handleTargetHealth)
 			s.routesTargets(r)
 			s.routesExtra(r)
 		})
@@ -136,16 +139,22 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"setupRequired": !setup,
-		"product":       "Boomerang",
+		"setupRequired":       !setup,
+		"setupTokenRequired":  !setup,
+		"product":             "Boomerang",
 	})
 }
 
 type setupReq struct {
-	Password string `json:"password"`
+	Password   string `json:"password"`
+	SetupToken string `json:"setupToken"`
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
+	if !s.allowSetup(clientIP(r)) {
+		writeErr(w, http.StatusTooManyRequests, "too many setup attempts")
+		return
+	}
 	setup, err := s.store.IsSetup()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -164,6 +173,10 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	if !setupauth.ValidateToken(s.cfg.DataDir, req.SetupToken) {
+		writeErr(w, http.StatusUnauthorized, "invalid setup token")
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "hash failed")
@@ -174,6 +187,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit("setup", "admin password created")
+	setupauth.ClearToken(s.cfg.DataDir)
 	token, err := s.createSession()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "session failed")
@@ -188,7 +202,7 @@ type loginReq struct {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := r.RemoteAddr
+	ip := clientIP(r)
 	if !s.allowLogin(ip) {
 		writeErr(w, http.StatusTooManyRequests, "too many login attempts")
 		return

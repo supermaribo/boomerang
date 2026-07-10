@@ -201,11 +201,21 @@ func (r *Runner) StartDBRestore(databaseID, versionID string, tables []string) (
 }
 
 func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
-	_ = r.Store.AppendJobLog(jobID, "starting file backup")
+	sink := newJobLogSink(r.Store, jobID)
+	defer sink.flush()
+	sink.log("starting file backup")
 
 	fs, err := r.Store.GetFileServer(fileServerID)
 	if err != nil || fs == nil {
 		r.fail(jobID, "file server not found")
+		return
+	}
+	est := int64(0)
+	if prev, _ := r.Store.LastSucceededVersion("file", fileServerID); prev != nil {
+		est = prev.Bytes
+	}
+	if err := checkDiskForBackup(r.DataDir, est, fs.Protocol); err != nil {
+		r.fail(jobID, err.Error())
 		return
 	}
 	target, err := r.fileTarget(fs)
@@ -233,7 +243,7 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	}
 	defer vlog.Close()
 	log := func(line string) {
-		_ = r.Store.AppendJobLog(jobID, line)
+		sink.log(line)
 		vlog.Log(line)
 	}
 	log("--- file backup ---")
@@ -259,7 +269,7 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
-	_ = r.Store.AppendJobLog(jobID, fmt.Sprintf("version %s ready (%s)", versionID, res.Manifest.Kind))
+	sink.log(fmt.Sprintf("version %s ready (%s)", versionID, res.Manifest.Kind))
 	r.notifyJob(jobID, false, "")
 	_ = r.Store.PruneVersions("file", fileServerID, store.Retention{
 		Hourly: fs.RetainHourly, Daily: fs.RetainDaily, Weekly: fs.RetainWeekly,
@@ -396,11 +406,21 @@ func (r *Runner) mysqlTarget(db *store.Database) (mysqlbackup.Target, error) {
 }
 
 func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
-	_ = r.Store.AppendJobLog(jobID, "starting database backup")
+	sink := newJobLogSink(r.Store, jobID)
+	defer sink.flush()
+	sink.log("starting database backup")
 
 	db, err := r.Store.GetDatabase(databaseID)
 	if err != nil || db == nil {
 		r.fail(jobID, "database not found")
+		return
+	}
+	est := int64(0)
+	if prev, _ := r.Store.LastSucceededVersion("db", databaseID); prev != nil {
+		est = prev.Bytes
+	}
+	if err := checkDiskForBackup(r.DataDir, est, ""); err != nil {
+		r.fail(jobID, err.Error())
 		return
 	}
 	t, err := r.mysqlTarget(db)
@@ -418,7 +438,7 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 	}
 	defer vlog.Close()
 	log := func(line string) {
-		_ = r.Store.AppendJobLog(jobID, line)
+		sink.log(line)
 		vlog.Log(line)
 	}
 	log("--- database backup ---")
@@ -448,7 +468,7 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
-	_ = r.Store.AppendJobLog(jobID, fmt.Sprintf("version %s ready (%d tables)", versionID, len(res.Tables)))
+	sink.log(fmt.Sprintf("version %s ready (%d tables)", versionID, len(res.Tables)))
 	r.notifyJob(jobID, false, "")
 	_ = r.Store.PruneVersions("db", databaseID, store.Retention{
 		Hourly: db.RetainHourly, Daily: db.RetainDaily, Weekly: db.RetainWeekly,

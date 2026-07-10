@@ -5,7 +5,8 @@ import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
-import { retentionSummary } from "../components/ScheduleRetention";
+import { formatApplianceDateTime } from "../lib/formatTime";
+import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
 
 export type FileServer = {
   id: string;
@@ -45,11 +46,19 @@ export default function FileServers() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
-  const load = () =>
-    api<FileServer[]>("/api/file-servers").then(setList).catch((e) => setError(String(e.message || e)));
+  const [healthByID, setHealthByID] = useState<Record<string, TargetHealthRow>>({});
+
+  const load = async () => {
+    const [list, health] = await Promise.all([
+      api<FileServer[]>("/api/file-servers"),
+      api<{ targets: TargetHealthRow[] }>("/api/target-health"),
+    ]);
+    setList(list);
+    setHealthByID(healthMap(health.targets.filter((t) => t.targetType === "file")));
+  };
 
   useEffect(() => {
-    void load();
+    void load().catch((e) => setError(String(e.message || e)));
   }, []);
 
   const remove = async (id: string) => {
@@ -107,10 +116,12 @@ export default function FileServers() {
         <ul className="list list-stack">
           {list.map((f) => {
             const sched = parseSchedule(f.scheduleCron, f.scheduleStart || "", timezone);
+            const health = healthByID[`file:${f.id}`];
             return (
               <li key={f.id}>
                 <div className="list-main">
                   <strong>{f.name}</strong>
+                  {health && <TargetHealthBadge health={health.health} detail={health.healthDetail} />}
                   {!f.enabled && <span className="badge">disabled</span>}
                   <span className="muted">
                     {" "}
@@ -124,6 +135,9 @@ export default function FileServers() {
                   </div>
                   <div className="muted small">
                     {describeSchedule(sched)} · {retentionSummary(f, sched)}
+                    {health?.lastSuccessAt && (
+                      <span> · last backup {formatApplianceDateTime(health.lastSuccessAt, timezone)}</span>
+                    )}
                     {f.protocol !== "rsync" && (
                       <span> · {f.incrementalEnabled !== false ? "incremental" : "full only"}</span>
                     )}

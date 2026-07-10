@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/boomerang-backup/boomerang/internal/pathutil"
 )
 
 // Restore downloads a mirrored data directory from R2 into dataDir (overwriting files).
@@ -37,7 +39,10 @@ func Restore(ctx context.Context, dataDir string, cfg Config, log func(string)) 
 		if rel == "" || strings.HasSuffix(rel, "/") {
 			continue
 		}
-		dest := filepath.Join(dataDir, filepath.FromSlash(rel))
+		dest, err := pathutil.SafeDataPath(dataDir, rel)
+		if err != nil {
+			return res, fmt.Errorf("unsafe path %q: %w", rel, err)
+		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 			return res, fmt.Errorf("mkdir %s: %w", rel, err)
 		}

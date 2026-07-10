@@ -1,11 +1,7 @@
 package api
 
-import "syscall"
+import "github.com/boomerang-backup/boomerang/internal/diskfree"
 
 func diskFree(path string) (uint64, bool) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		return 0, false
-	}
-	return st.Bavail * uint64(st.Bsize), true
+	return diskfree.Bytes(path)
 }

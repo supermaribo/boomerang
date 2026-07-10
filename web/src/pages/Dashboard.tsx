@@ -4,7 +4,7 @@ import { api } from "../App";
 import { useTimezone } from "../context/Timezone";
 import { formatApplianceDate, formatApplianceTime } from "../lib/formatTime";
 import Nav from "../components/Nav";
-import SiteFooter from "../components/SiteFooter";
+import TargetHealthBadge, { type TargetHealthRow } from "../components/TargetHealthBadge";
 
 type Dash = {
   fileServers: number;
@@ -120,16 +120,20 @@ export default function Dashboard({ onLogout }: Props) {
   const [dbBackups, setDbBackups] = useState<RecentRow[]>([]);
   const [error, setError] = useState("");
 
+  const [targetHealth, setTargetHealth] = useState<TargetHealthRow[]>([]);
+
   useEffect(() => {
     Promise.all([
       api<Dash>("/api/dashboard"),
       api<RecentRow[]>("/api/backups/recent?limit=15&type=file"),
       api<RecentRow[]>("/api/backups/recent?limit=15&type=db"),
+      api<{ targets: TargetHealthRow[] }>("/api/target-health"),
     ])
-      .then(([d, files, dbs]) => {
+      .then(([d, files, dbs, health]) => {
         setData(d);
         setFileBackups(files);
         setDbBackups(dbs);
+        setTargetHealth(health.targets);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
   }, []);
@@ -143,6 +147,23 @@ export default function Dashboard({ onLogout }: Props) {
       </header>
 
       {error && <p className="err pad">{error}</p>}
+
+      {targetHealth.some((t) => t.health === "error" || t.health === "warning") && (
+        <section className="tile target-health-panel">
+          <h2>Backup health</h2>
+          <ul className="target-health-list">
+            {targetHealth
+              .filter((t) => t.health === "error" || t.health === "warning")
+              .map((t) => (
+                <li key={`${t.targetType}:${t.id}`}>
+                  <strong>{t.name}</strong>{" "}
+                  <TargetHealthBadge health={t.health} detail={t.healthDetail} />
+                  <span className="muted small"> — {t.healthDetail}</span>
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
 
       <section className="tile dash-overview-panel">
         <div className="dash-overview">

@@ -5,8 +5,9 @@ import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
-import { retentionSummary } from "../components/ScheduleRetention";
+import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
+import { formatApplianceDateTime } from "../lib/formatTime";
 
 export type Database = {
   id: string;
@@ -75,9 +76,13 @@ export default function Databases() {
   const [deleteVersion, setDeleteVersion] = useState<DeleteVersionState | null>(null);
   const [logVersion, setLogVersion] = useState<{ dbId: string; vid: string } | null>(null);
 
+  const [healthByID, setHealthByID] = useState<Record<string, TargetHealthRow>>({});
+
   const load = async () => {
     const dbs = await api<Database[]>("/api/databases");
+    const health = await api<{ targets: TargetHealthRow[] }>("/api/target-health");
     setList(dbs);
+    setHealthByID(healthMap(health.targets.filter((t) => t.targetType === "db")));
     const verMap: Record<string, Version[]> = {};
     await Promise.all(
       dbs.map(async (d) => {
@@ -320,10 +325,12 @@ export default function Databases() {
         <ul className="list list-stack">
           {list.map((d) => {
             const sched = parseSchedule(d.scheduleCron, d.scheduleStart || "", timezone);
+            const health = healthByID[`db:${d.id}`];
             return (
               <li key={d.id} id={`db-${d.id}`}>
                 <div className="list-main">
                   <strong>{d.name}</strong>
+                  {health && <TargetHealthBadge health={health.health} detail={health.healthDetail} />}
                   {!d.enabled && <span className="badge">disabled</span>}
                   <span className="muted">
                     {" "}
@@ -331,6 +338,9 @@ export default function Databases() {
                   </span>
                   <div className="muted small">
                     {describeSchedule(sched)} · {retentionSummary(d, sched)}
+                    {health?.lastSuccessAt && (
+                      <span> · last backup {formatApplianceDateTime(health.lastSuccessAt, timezone)}</span>
+                    )}
                     {d.includeTables?.length
                       ? ` · ${d.includeTables.length} table(s)`
                       : " · all tables"}

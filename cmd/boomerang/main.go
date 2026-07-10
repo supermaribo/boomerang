@@ -13,6 +13,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	setupauth "github.com/boomerang-backup/boomerang/internal/setup"
 )
 
 //go:embed all:webdist
@@ -42,6 +43,15 @@ func main() {
 	box, err := crypto.NewBox(cfg.MasterKey)
 	if err != nil {
 		log.Fatalf("crypto: %v", err)
+	}
+
+	if setup, err := st.IsSetup(); err == nil && !setup {
+		if tok, err := setupauth.EnsureToken(cfg.DataDir); err != nil {
+			log.Printf("setup token: %v", err)
+		} else {
+			log.Printf("first-boot setup token (required for initial setup): %s", tok)
+			log.Printf("token file: %s", setupauth.TokenPath(cfg.DataDir))
+		}
 	}
 
 	offsiteSyncer := offsite.NewSyncer(st, box, cfg.DataDir)

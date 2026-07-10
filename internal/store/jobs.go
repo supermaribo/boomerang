@@ -52,8 +52,30 @@ func (s *Store) UpdateJob(id, status, errMsg string, started time.Time, finished
 }
 
 func (s *Store) AppendJobLog(jobID, line string) error {
-	_, err := s.DB.Exec(`INSERT INTO job_logs(job_id, line) VALUES(?, ?)`, jobID, line)
-	return err
+	return s.AppendJobLogs(jobID, []string{line})
+}
+
+func (s *Store) AppendJobLogs(jobID string, lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT INTO job_logs(job_id, line) VALUES(?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, line := range lines {
+		if _, err := stmt.Exec(jobID, line); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) GetJob(id string) (*Job, error) {
@@ -126,6 +148,28 @@ func (s *Store) ListVersions(targetType, targetID string) ([]Version, error) {
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) CountVersions(targetType, targetID string) (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM backup_versions WHERE target_type=? AND target_id=?`, targetType, targetID).Scan(&n)
+	return n, err
+}
+
+func (s *Store) LastJobForTarget(targetType, targetID string) (*Job, error) {
+	var j Job
+	err := s.DB.QueryRow(`
+		SELECT id, target_type, target_id, kind, status, error, started_at, finished_at, created_at
+		FROM jobs WHERE target_type=? AND target_id=? ORDER BY created_at DESC LIMIT 1`,
+		targetType, targetID).
+		Scan(&j.ID, &j.TargetType, &j.TargetID, &j.Kind, &j.Status, &j.Error, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
 }
 
 // ErrVersionNotFound is returned when a backup version does not exist for the target.

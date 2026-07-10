@@ -198,7 +198,7 @@ environment:
 
 ## 👋 First-time setup
 
-1. Open the UI and create the admin password (minimum 8 characters).
+1. Open the UI and enter the **setup token** from `install.sh` output or `journalctl -u boomerang` (first boot only), then create the admin password (minimum 8 characters).
 2. **Settings → Notifications** — your email, which alerts to send, send a test email.
 3. Add a **file server** (SFTP/RSYNC/FTP) and/or **database** target.
 4. On remote hosts, allow **only this appliance's IP** in the firewall (shown in the setup wizard).

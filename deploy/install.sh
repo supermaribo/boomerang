@@ -50,6 +50,14 @@ install -d -m 700 -o boomerang -g boomerang \
   "$DATA_DIR/secrets" \
   "$DATA_DIR/backups"
 
+SETUP_TOKEN=""
+if [[ ! -f "$DATA_DIR/app.db" ]]; then
+  SETUP_TOKEN="$(openssl rand -hex 16)"
+  printf '%s\n' "$SETUP_TOKEN" >"$DATA_DIR/secrets/setup.token"
+  chmod 600 "$DATA_DIR/secrets/setup.token"
+  chown boomerang:boomerang "$DATA_DIR/secrets/setup.token"
+fi
+
 echo "==> Installing binary to $PREFIX/bin/boomerang"
 install -m 755 "$BIN_SRC" "$PREFIX/bin/boomerang"
 
@@ -75,4 +83,9 @@ echo "  UI:      http://${IP:-localhost}:8080"
 echo "  Data:    $DATA_DIR"
 echo "  Logs:    journalctl -u boomerang -f"
 echo
+if [[ -n "$SETUP_TOKEN" ]]; then
+  echo "Setup token (required on first visit): $SETUP_TOKEN"
+  echo "  (also in $DATA_DIR/secrets/setup.token)"
+  echo
+fi
 echo "Open the UI and set your admin password on first visit."

@@ -425,9 +425,57 @@ body {
   margin: -0.35rem 0 0.85rem;
 }
 
-.account-settings-card .settings-form-actions {
-  margin-top: 0.25rem;
+.health-pill {
+  display: inline-block;
+  margin-left: 0.45rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
 }
+
+.health-pill.ok {
+  background: rgba(52, 168, 110, 0.18);
+  color: #6fd39a;
+}
+
+.health-pill.warning {
+  background: rgba(214, 158, 46, 0.18);
+  color: #e8c468;
+}
+
+.health-pill.error {
+  background: rgba(214, 82, 82, 0.18);
+  color: #f08a8a;
+}
+
+.health-pill.idle {
+  background: rgba(120, 130, 128, 0.18);
+  color: var(--muted);
+}
+
+.target-health-panel h2 {
+  margin: 0 0 0.75rem;
+}
+
+.target-health-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.target-health-list li {
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.target-health-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 
 .settings-fieldset {
   border: 0;

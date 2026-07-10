@@ -34,9 +34,25 @@ func (s *Scheduler) checkMissedBackups() {
 	}
 	cut := time.Now().UTC().Add(-36 * time.Hour)
 
-	check := func(targetType, id, name string) {
+	check := func(targetType, id, name, scheduleStart string) {
+		if !scheduleActive(scheduleStart) {
+			return
+		}
 		last, _ := s.store.LastSucceededVersion(targetType, id)
 		if last == nil {
+			key := "missed_alert:" + targetType + ":" + id
+			if sent, _, _ := s.store.GetMeta(key); sent != "" {
+				if sentAt, ok := parseStart(sent); ok && time.Since(sentAt) < 12*time.Hour {
+					return
+				}
+			}
+			subject := "[Boomerang] No backup yet: " + name
+			body := "Scheduled backups are enabled for " + name + " but no successful backup has completed yet.\n\nCheck schedules, credentials, and job logs in Boomerang."
+			if err := cfg.Send(subject, body); err != nil {
+				log.Printf("missed backup alert %s: %v", name, err)
+				return
+			}
+			_ = s.store.SetMeta(key, time.Now().UTC().Format(time.RFC3339))
 			return
 		}
 		t, ok := parseStart(last.CreatedAt)
@@ -61,13 +77,25 @@ func (s *Scheduler) checkMissedBackups() {
 	files, _ := s.store.ListFileServers()
 	for _, f := range files {
 		if f.Enabled && strings.TrimSpace(f.ScheduleCron) != "" {
-			check("file", f.ID, f.Name)
+			check("file", f.ID, f.Name, f.ScheduleStart)
 		}
 	}
 	dbs, _ := s.store.ListDatabases()
 	for _, d := range dbs {
 		if d.Enabled && strings.TrimSpace(d.ScheduleCron) != "" {
-			check("db", d.ID, d.Name)
+			check("db", d.ID, d.Name, d.ScheduleStart)
 		}
 	}
+}
+
+func scheduleActive(start string) bool {
+	start = strings.TrimSpace(start)
+	if start == "" {
+		return true
+	}
+	t, ok := parseStart(start)
+	if !ok {
+		return true
+	}
+	return !time.Now().UTC().Before(t)
 }
