@@ -100,7 +100,7 @@ function ApplianceStatus({ items }: { items: StatusItem[] }) {
       </div>
       <ul className="dash-status-grid">
         {items.map((item) => (
-          <li key={item.id} className={`dash-status-chip ${item.ok ? "ok" : "warn"}`}>
+          <li key={item.id} className={`dash-status-chip ${item.ok ? "ok" : "warn"}`} title={item.detail}>
             <span className="dash-status-icon" aria-hidden>
               {item.ok ? "✓" : "!"}
             </span>
