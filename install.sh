@@ -61,6 +61,14 @@ case "$ARCH" in
   *) echo "Unsupported architecture: $ARCH (set GOARCH manually)" >&2; exit 1 ;;
 esac
 
+# shellcheck source=deploy/preflight.sh
+source "$ROOT/deploy/preflight.sh"
+if [[ "$BUILD" == 1 ]]; then
+  PREFLIGHT_WARN_ONLY=1 boomerang_preflight --build
+else
+  boomerang_preflight
+fi
+
 if [[ "$BUILD" == 1 ]]; then
   echo "==> Building Boomerang ($GOOS/$GOARCH)"
   export DEBIAN_FRONTEND=noninteractive

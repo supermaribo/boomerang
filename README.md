@@ -1,26 +1,102 @@
-# Boomerang
+# 🪃 Boomerang
 
-Self-hosted backup appliance for websites and databases. Pull files over **SFTP**, **RSYNC**, or **FTP**; dump **MySQL** over direct TCP or SSH tunnel; browse versions, restore selectively, and get email alerts when jobs fail or succeed.
+**Your backups come back.** Boomerang is a small, self-hosted backup appliance you run on your own Linux box — pull website files and MySQL databases on a schedule, keep versions, restore when things go wrong, and get emailed when a job fails.
 
-Single Go binary + embedded web UI. Data stays on your server under `/var/lib/boomerang` by default.
+One Go binary, built-in web UI, no cloud subscription. Data stays on **your** server under `/var/lib/boomerang`.
 
 ---
 
-## Requirements
+## 🏠 LXC / Proxmox — fastest way to try it
+
+Perfect for a home lab: a dedicated Debian container that only does backups.
+
+| Suggested CT | Value |
+|--------------|-------|
+| **Template** | Debian 12 or Ubuntu 22.04 |
+| **CPU / RAM** | 1 vCPU, 512 MB–1 GB RAM |
+| **Disk** | 20 GB+ (more if you keep lots of versions) |
+| **Network** | Outbound SSH/FTP/MySQL to your web servers |
+
+**On the container as root:**
+
+```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/supermaribo/boomerang.git
+cd boomerang
+chmod +x install.sh
+./install.sh
+```
+
+The installer runs a **system check** first (OS, disk, RAM, systemd, port 8080), then installs dependencies and starts the service.
+
+Open **`http://YOUR_CT_IP:8080`** → set your admin password → add targets → run **Backup now**.
+
+> 🔒 Keep port **8080** on your LAN only. Boomerang is HTTP + single password — not meant for the public internet without a reverse proxy.
+
+---
+
+## 🤔 What is this for?
+
+Boomerang is the **backup box** — not the website server. It lives on your network (LXC, VPS, or spare machine) and **pulls** copies from your real servers:
+
+- **File servers** — SFTP, RSYNC, or FTP/FTPS (WordPress files, configs, uploads, …)
+- **Databases** — MySQL/MariaDB dumps (full or selected tables)
+
+You get a timeline of versions, browse files inside a backup, restore selected paths back to the live server, download a zip, or roll back database tables — without paying for a hosted backup SaaS.
+
+### Example setups
+
+**Home lab (Proxmox)**  
+- CT `192.168.1.50` runs Boomerang  
+- Another CT or Pi hosts your site over SFTP + MariaDB  
+- Firewall on the site: allow SSH/MySQL **only** from `192.168.1.50`
+
+**Small business site**  
+- Boomerang on a internal VM  
+- Nightly SFTP backup of `/var/www/html`  
+- Nightly `mysqldump` of the WordPress DB via SSH tunnel  
+- Email alert if a backup fails overnight
+
+**Manual backup cleanup**  
+- You ran **Backup now** before a risky deploy  
+- After you're happy, delete that version in **Explore backups** to free disk
+
+**After a bad deploy**  
+- Open **Explore backups** → pick yesterday's version → restore `wp-content/uploads` only  
+- Or restore selected MySQL tables (e.g. `wp_posts`, `wp_options`) without touching the rest
+
+---
+
+## ✨ Features
+
+- 📁 **File backups** — SFTP (recommended), RSYNC, FTP/FTPS; include/exclude paths; optional incremental chains
+- 🗄️ **Database backups** — MySQL with direct or SSH-tunnel connection; per-table dumps for safer restores
+- 🔍 **Explore & restore** — browse backup trees, search, selective restore, download zip, verify backup integrity
+- 📅 **Schedules & retention** — friendly “every N hours” UI or cron; hourly/daily/weekly/monthly/yearly keep counts
+- 📧 **Alerts** — local mail (postfix) or custom SMTP; toggles for backup/restore success and failure
+- 🔐 **Encrypted at rest** — credentials and backup blobs encrypted with a local master key
+- 🗑️ **Delete versions** — remove individual backups you no longer need
+
+---
+
+## 📋 Requirements
 
 | Component | Purpose |
 |-----------|---------|
-| **Linux** | Debian 12+, Ubuntu 22.04+, or similar (systemd for native install) |
+| **Linux** | Debian 12+, Ubuntu 22.04+, or similar (**systemd** for native install) |
 | **openssh-client** | SFTP / RSYNC / SSH tunnels |
 | **rsync** | RSYNC backups |
-| **default-mysql-client** | `mysqldump` / `mysql` for database backup & restore |
-| **postfix** (optional) | Local email alerts (Settings → Local mail) |
+| **default-mysql-client** | `mysqldump` / `mysql` |
+| **postfix** (optional) | Local email alerts |
 
-**Disk:** Plan for the full size of retained file + database backups. **RAM:** 512 MB+ is fine for small sites.
+**Disk:** Plan for the full size of everything you retain (file + DB versions).  
+**RAM:** 512 MB+ is fine for small sites.
+
+`install.sh` checks these automatically before installing (see [Install script reference](#-install-script-reference)).
 
 ---
 
-## Quick install (Debian / Ubuntu / LXC)
+## 🚀 Quick install (Debian / Ubuntu / LXC)
 
 On the backup appliance as **root**:
 
@@ -31,14 +107,13 @@ chmod +x install.sh
 ./install.sh
 ```
 
-The installer will:
+What happens:
 
-1. Install system dependencies (including postfix for local mail)
-2. Build the web UI and Go binary
-3. Create the `boomerang` user and `/var/lib/boomerang`
-4. Enable the systemd service
-
-Open **http://YOUR_SERVER_IP:8080** and set the admin password on first visit.
+1. ✅ **System check** — OS, architecture, disk, memory, systemd, port 8080
+2. 📦 Install system packages (SSH, rsync, MySQL client, postfix for local mail)
+3. 🔨 Build web UI + Go binary (unless you pass `--no-build`)
+4. 👤 Create `boomerang` user and `/var/lib/boomerang`
+5. ⚙️ Enable and start the systemd service
 
 ### Upgrade
 
@@ -48,30 +123,39 @@ git pull
 sudo ./install.sh
 ```
 
-Or copy a pre-built binary only:
+### Pre-built binary (e.g. build on Mac, install on LXC)
 
 ```bash
-# On your dev machine (example: Mac → Linux amd64)
+# On your dev machine
 cd web && npm ci && npm run build && cd ..
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/boomerang ./cmd/boomerang
 scp dist/boomerang root@YOUR_SERVER:/tmp/
 
 # On the server
+cd boomerang   # or clone repo for install scripts
 sudo ./install.sh --no-build /tmp/boomerang
 ```
 
 ---
 
-## Install script reference
+## 🛠 Install script reference
 
 ```text
-sudo ./install.sh [options] [binary]
+sudo ./install.sh [options] [path/to/boomerang-binary]
 
 Options:
   --no-build     Use an existing binary (skip compile)
   --binary PATH  Same as passing PATH as the last argument
   -h, --help     Show help
 ```
+
+**System check** (runs automatically before install):
+
+- Linux on **amd64** or **arm64**
+- **root** for native install
+- **apt-get** + **systemd**
+- At least **1 GB** free disk (warns below **20 GB**)
+- Warns if RAM &lt; **512 MB** or port **8080** is busy
 
 **Environment variables:**
 
@@ -81,7 +165,7 @@ Options:
 | `PREFIX` | `/usr/local` | Where `boomerang` binary is installed |
 | `GOOS` / `GOARCH` | `linux` / host arch | Cross-compile when building on the server |
 
-Low-level install (binary + systemd only):
+Low-level install (binary + systemd only, includes the same system check):
 
 ```bash
 sudo bash deploy/install.sh /path/to/boomerang
@@ -89,9 +173,9 @@ sudo bash deploy/install.sh /path/to/boomerang
 
 ---
 
-## Docker
+## 🐳 Docker
 
-Docker is suitable for testing or if you prefer containers over systemd. **Use custom SMTP** for email in Docker (no local postfix in the image).
+Good for testing or if you prefer containers over systemd. **Use custom SMTP** for email in Docker (no local postfix in the image).
 
 ```bash
 git clone https://github.com/supermaribo/boomerang.git
@@ -100,10 +184,6 @@ docker compose up -d --build
 ```
 
 UI: **http://localhost:8080**
-
-Data is stored in the `boomerang-data` volume. Back it up regularly (see [Disaster recovery](#disaster-recovery)).
-
-### Docker environment
 
 ```yaml
 environment:
@@ -114,7 +194,24 @@ environment:
 
 ---
 
-## Manual build (developers)
+## 👋 First-time setup
+
+1. Open the UI and create the admin password (minimum 8 characters).
+2. **Settings → Notifications** — your email, which alerts to send, send a test email.
+3. Add a **file server** (SFTP/RSYNC/FTP) and/or **database** target.
+4. On remote hosts, allow **only this appliance's IP** in the firewall (shown in the setup wizard).
+5. Run **Backup now** and confirm a version appears under **Explore backups**.
+
+### Security — internal network only
+
+- Run on a **LAN, LXC, or VPN** — not raw on the open internet.
+- UI is **HTTP on 8080**, single shared password.
+- Do **not** port-forward 8080 without TLS and proper access control.
+- Remote servers: allow backup ports **only from Boomerang's IP**.
+
+---
+
+## 🧑‍💻 Manual build (developers)
 
 ```bash
 cd web && npm ci && npm run build && cd ..
@@ -126,53 +223,22 @@ Runs on **http://127.0.0.1:8080** with data in `./var/lib/boomerang` if you set 
 
 ---
 
-## First-time setup
-
-1. Open the UI and create the admin password (minimum 8 characters).
-2. **Settings → Notifications** — enter your email, choose which alerts to send, send a test email.
-3. Add a **file server** (SFTP/RSYNC/FTP) and/or **database** target.
-4. On remote hosts, allow **only this appliance’s IP** through the firewall (LAN and public IP shown in the setup wizard).
-5. Run **Backup now** and confirm a version appears.
-
-### Security — internal network only
-
-Boomerang is designed as a **private backup appliance**, not a public web app.
-
-- Run it on a **LAN, LXC, or VPN** — not directly on the open internet.
-- The UI listens on **HTTP port 8080** with **no TLS** and a **single shared password**.
-- Do **not** port-forward 8080 on your router or expose it via a public IP without a reverse proxy and proper auth.
-- Remote servers should allow backup traffic **only from Boomerang’s IP**, never from `0.0.0.0/0`.
-
----
-
-## Features
-
-- **File backups:** SFTP, RSYNC, FTP/FTPS — dotfiles, exclude globs, incremental chains, encrypted blobs at rest
-- **Database backups:** MySQL with optional SSH tunnel; pick tables to include; per-table restore
-- **Explore & restore:** Browse backup trees, search, selective restore, download zip
-- **Retention:** GFS-style hourly / daily / weekly / yearly counts per target
-- **Schedules:** Friendly “every N hours” UI or raw cron
-- **Alerts:** Local mail (postfix) or custom SMTP; backup/restore success & failure toggles
-- **Security:** Encrypted credentials and backup files (master key); single-user login
-
----
-
-## Environment variables
+## ⚙️ Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BOOMERANG_DATA_DIR` | `/var/lib/boomerang` | SQLite DB, `secrets/`, `backups/` |
-| `BOOMERANG_LISTEN` | `127.0.0.1:8080` | HTTP listen address (use `0.0.0.0:8080` on a dedicated appliance; put TLS in front for remote access) |
+| `BOOMERANG_LISTEN` | `127.0.0.1:8080` | HTTP listen (`0.0.0.0:8080` on appliance; use TLS in front for remote access) |
 | `BOOMERANG_MASTER_KEY` | auto-generated | 64 hex chars (32 bytes). If set, used instead of `secrets/master.key` |
-| `BOOMERANG_MAX_JOBS` | `4`–`16` (CPU-based) | Max backups/restores running at once across different targets |
+| `BOOMERANG_MAX_JOBS` | `4`–`16` (CPU-based) | Max backups/restores running at once |
 
 ---
 
-## TLS and reverse proxy
+## 🔒 TLS and reverse proxy
 
-Boomerang serves plain HTTP. For a dedicated appliance, `deploy/boomerang.service` sets `BOOMERANG_LISTEN=0.0.0.0:8080` on your LAN only.
+Boomerang serves plain HTTP. On a dedicated appliance, `deploy/boomerang.service` uses `BOOMERANG_LISTEN=0.0.0.0:8080` on your LAN.
 
-For HTTPS, put **nginx**, **Caddy**, or another reverse proxy in front and terminate TLS there. Example Caddy:
+For HTTPS, put **Caddy** or **nginx** in front:
 
 ```text
 boomerang.lan {
@@ -180,11 +246,9 @@ boomerang.lan {
 }
 ```
 
-Do not expose the UI directly to the internet without TLS and network restrictions.
-
 ---
 
-## Service management (systemd)
+## 📟 Service management (systemd)
 
 ```bash
 sudo systemctl status boomerang
@@ -196,7 +260,7 @@ Unit file: `deploy/boomerang.service`
 
 ---
 
-## Disaster recovery
+## 💾 Disaster recovery
 
 Everything important lives under **`BOOMERANG_DATA_DIR`**:
 
@@ -217,35 +281,26 @@ To restore on a new host:
 4. `chown -R boomerang:boomerang /var/lib/boomerang` (native install).
 5. Start the service and update remote firewall rules for the new IP.
 
-Details are also in **Settings → Recovery** in the UI.
+More detail in **Settings → Recovery** in the UI.
 
 ---
 
-## LXC (Proxmox) notes
-
-- Debian or Ubuntu template, 1 CPU, 512 MB–1 GB RAM, 20 GB+ disk (more for large backups).
-- Install on the CT as root with `./install.sh`.
-- Allow outbound TCP (SSH, FTP, MySQL) to your web servers.
-- Access UI via the CT IP, e.g. `http://192.168.x.x:8080`.
-
----
-
-## Firewall (remote servers)
+## 🧱 Firewall (remote servers)
 
 Boomerang connects **outbound** to your sites. On each **remote** server, allow:
 
-- **SFTP/RSYNC:** TCP 22 from the Boomerang IP only  
-- **FTP:** TCP 21 (or FTPS 990) from the Boomerang IP only  
-- **MySQL (direct):** TCP 3306 from the Boomerang IP only  
+- **SFTP/RSYNC:** TCP 22 from the Boomerang IP only
+- **FTP:** TCP 21 (or FTPS 990) from the Boomerang IP only
+- **MySQL (direct):** TCP 3306 from the Boomerang IP only
 
-Do **not** open these ports to `0.0.0.0/0`. The setup wizards show this appliance’s IP.
+Do **not** open these ports to `0.0.0.0/0`. The setup wizards show this appliance's IP.
 
 ---
 
-## License
+## 📜 License
 
 [Boomerang](https://github.com/supermaribo/boomerang) is free and open source under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
 
 You may use and modify it at no cost. If you distribute or host a modified version, you must provide the corresponding source under the same license. Proprietary redistribution, relicensing, or selling copies without complying with AGPL-3.0 is not permitted.
 
-The full license text is in [`LICENSE`](LICENSE) and may be refined on GitHub. Contributions welcome.
+Contributions welcome on GitHub.

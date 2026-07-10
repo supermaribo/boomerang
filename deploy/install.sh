@@ -16,6 +16,11 @@ if [[ -z "$BIN_SRC" || ! -f "$BIN_SRC" ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=preflight.sh
+source "$SCRIPT_DIR/preflight.sh"
+boomerang_preflight
+
 export DEBIAN_FRONTEND=noninteractive
 
 echo "==> Installing packages (SSH, rsync, MySQL client, mail)"
@@ -48,7 +53,6 @@ install -d -m 700 -o boomerang -g boomerang \
 echo "==> Installing binary to $PREFIX/bin/boomerang"
 install -m 755 "$BIN_SRC" "$PREFIX/bin/boomerang"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 install -m 644 "$SCRIPT_DIR/boomerang.service" /etc/systemd/system/boomerang.service
 
 systemctl daemon-reload
