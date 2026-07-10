@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -486,7 +487,17 @@ func (r *Runner) notifyJob(jobID string, failed bool, errMsg string) {
 
 func (r *Runner) fail(jobID, msg string) {
 	now := time.Now().UTC()
+	msg = truncateJobMessage(msg)
 	_ = r.Store.AppendJobLog(jobID, "error: "+msg)
 	_ = r.Store.UpdateJob(jobID, "failed", msg, time.Time{}, &now)
 	r.notifyJob(jobID, true, msg)
+}
+
+func truncateJobMessage(msg string) string {
+	const max = 4000
+	msg = strings.TrimSpace(msg)
+	if len(msg) <= max {
+		return msg
+	}
+	return msg[:max] + "… (truncated)"
 }

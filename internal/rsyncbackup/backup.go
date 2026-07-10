@@ -56,9 +56,10 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	if opt.BaseManifest != nil && opt.BaseVersionID != "" {
 		log("note: RSYNC always captures a full snapshot (not incremental on disk)")
 	}
+	var hadPartial bool
 	for _, root := range roots {
 		src := fmt.Sprintf("%s@%s:%s/", target.Username, target.Host, strings.TrimSuffix(root, "/")+"/")
-		args := []string{"-az", "--numeric-ids", "-e", strings.Join(sshArgs, " ")}
+		args := []string{"-az", "--numeric-ids", "--ignore-errors", "-e", strings.Join(sshArgs, " ")}
 		for _, ex := range opt.ExcludePaths {
 			ex = strings.TrimSpace(ex)
 			if ex != "" {
@@ -72,9 +73,22 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		args = append(args, src, dest+"/")
 		log(fmt.Sprintf("rsync %s", root))
 		cmd := exec.Command("rsync", args...)
-		out, err := cmd.CombinedOutput()
+		partial, out, err := runRsync(cmd)
 		if err != nil {
-			return nil, fmt.Errorf("rsync: %w (%s)", err, strings.TrimSpace(string(out)))
+			return nil, err
+		}
+		if partial {
+			hadPartial = true
+			log(summarizeRsyncWarnings(out, root))
+		}
+	}
+	if hadPartial {
+		n, err := stagingFileCount(staging)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			return nil, fmt.Errorf("rsync: no files could be read (permission denied on remote)")
 		}
 	}
 
