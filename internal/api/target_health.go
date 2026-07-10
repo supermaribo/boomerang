@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/boomerang-backup/boomerang/internal/schedule"
+	"github.com/boomerang-backup/boomerang/internal/tzutil"
 )
 
 type targetHealthRow struct {
@@ -17,6 +20,7 @@ type targetHealthRow struct {
 	VersionCount    int    `json:"versionCount"`
 	LastJobStatus   string `json:"lastJobStatus,omitempty"`
 	LastJobError    string `json:"lastJobError,omitempty"`
+	NextRunAt       string `json:"nextRunAt,omitempty"`
 	Health          string `json:"health"`
 	HealthDetail    string `json:"healthDetail,omitempty"`
 }
@@ -43,6 +47,12 @@ func (s *Server) healthForTarget(targetType, id, name string, enabled bool, cron
 		Enabled:    enabled,
 		Scheduled:  enabled && strings.TrimSpace(cron) != "",
 		Health:     "idle",
+	}
+	if row.Scheduled {
+		loc := tzutil.Load(s.store)
+		if next, ok := schedule.NextRun(cron, loc, time.Now()); ok {
+			row.NextRunAt = next.UTC().Format(time.RFC3339)
+		}
 	}
 	if cnt, err := s.store.CountVersions(targetType, id); err == nil {
 		row.VersionCount = cnt

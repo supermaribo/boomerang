@@ -49,6 +49,9 @@ export default function FileServers() {
 
   const [healthByID, setHealthByID] = useState<Record<string, TargetHealthRow>>({});
 
+  const [deleteTarget, setDeleteTarget] = useState<FileServer | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+
   const load = async () => {
     const [list, health] = await Promise.all([
       api<FileServer[]>("/api/file-servers"),
@@ -62,10 +65,21 @@ export default function FileServers() {
     void load().catch((e) => setError(String(e.message || e)));
   }, []);
 
-  const remove = async (id: string) => {
-    if (!confirm("Delete this file server?")) return;
-    await api(`/api/file-servers/${id}`, { method: "DELETE" });
-    await load();
+  const remove = async () => {
+    if (!deleteTarget || deleteConfirm !== deleteTarget.name) return;
+    setError("");
+    try {
+      await api(`/api/file-servers/${deleteTarget.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmName: deleteConfirm }),
+      });
+      setDeleteTarget(null);
+      setDeleteConfirm("");
+      await load();
+      setInfo(`Deleted ${deleteTarget.name}.`);
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    }
   };
 
   const backupNow = async (id: string) => {
@@ -139,6 +153,9 @@ export default function FileServers() {
                     {health?.lastSuccessAt && (
                       <span> · last backup {formatApplianceDateTime(health.lastSuccessAt, timezone)}</span>
                     )}
+                    {health?.nextRunAt && (
+                      <span> · next run {formatApplianceDateTime(health.nextRunAt, timezone)}</span>
+                    )}
                     {f.protocol !== "rsync" && (
                       <span> · {f.incrementalEnabled !== false ? "incremental" : "full only"}</span>
                     )}
@@ -154,7 +171,7 @@ export default function FileServers() {
                   <Link className="ghost btn-link" to={`/app/file-servers/${f.id}/edit`}>
                     Edit
                   </Link>
-                  <button type="button" className="ghost danger-text" onClick={() => void remove(f.id)}>
+                  <button type="button" className="ghost danger-text" onClick={() => setDeleteTarget(f)}>
                     Delete
                   </button>
                 </div>
@@ -162,6 +179,39 @@ export default function FileServers() {
             );
           })}
         </ul>
+        {deleteTarget && (
+          <div className="modal-backdrop">
+            <div className="modal tile">
+              <h2>Delete file server</h2>
+              <p className="muted">
+                This removes <strong>{deleteTarget.name}</strong> and all of its backup versions from
+                this appliance.
+              </p>
+              <label>Type <strong>{deleteTarget.name}</strong> to confirm</label>
+              <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
+              <div className="actions">
+                <button
+                  type="button"
+                  className="danger-text"
+                  disabled={deleteConfirm !== deleteTarget.name}
+                  onClick={() => void remove()}
+                >
+                  Delete permanently
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setDeleteTarget(null);
+                    setDeleteConfirm("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
       <SiteFooter />
     </div>

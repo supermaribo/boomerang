@@ -91,21 +91,34 @@ func (s *Store) GetJob(id string) (*Job, error) {
 	return &j, nil
 }
 
-func (s *Store) ListJobLogs(jobID string) ([]string, error) {
-	rows, err := s.DB.Query(`SELECT line FROM job_logs WHERE job_id=? ORDER BY id`, jobID)
+func (s *Store) ListJobLogs(jobID string, limit, offset int) ([]string, int, error) {
+	if limit <= 0 {
+		limit = 2000
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM job_logs WHERE job_id=?`, jobID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.DB.Query(`SELECT line FROM job_logs WHERE job_id=? ORDER BY id LIMIT ? OFFSET ?`, jobID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var line string
 		if err := rows.Scan(&line); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, line)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (s *Store) CreateVersion(id, targetType, targetID, path string) error {

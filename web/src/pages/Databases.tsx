@@ -109,10 +109,24 @@ export default function Databases() {
     }
   }, [list, searchParams]);
 
-  const remove = async (id: string) => {
-    if (!confirm("Delete this database target?")) return;
-    await api(`/api/databases/${id}`, { method: "DELETE" });
-    await load();
+  const [deleteTarget, setDeleteTarget] = useState<Database | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  const remove = async () => {
+    if (!deleteTarget || deleteConfirm !== deleteTarget.name) return;
+    setError("");
+    try {
+      await api(`/api/databases/${deleteTarget.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmName: deleteConfirm }),
+      });
+      setDeleteTarget(null);
+      setDeleteConfirm("");
+      await load();
+      setInfo(`Deleted ${deleteTarget.name}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "delete failed");
+    }
   };
 
   const backupNow = async (id: string) => {
@@ -342,6 +356,9 @@ export default function Databases() {
                     {health?.lastSuccessAt && (
                       <span> · last backup {formatApplianceDateTime(health.lastSuccessAt, timezone)}</span>
                     )}
+                    {health?.nextRunAt && (
+                      <span> · next run {formatApplianceDateTime(health.nextRunAt, timezone)}</span>
+                    )}
                     {d.includeTables?.length
                       ? ` · ${d.includeTables.length} table(s)`
                       : " · all tables"}
@@ -423,7 +440,7 @@ export default function Databases() {
                   <Link className="ghost btn-link" to={`/app/databases/${d.id}/edit`}>
                     Edit
                   </Link>
-                  <button type="button" className="ghost danger-text" onClick={() => void remove(d.id)}>
+                  <button type="button" className="ghost danger-text" onClick={() => setDeleteTarget(d)}>
                     Delete
                   </button>
                 </div>
@@ -431,6 +448,39 @@ export default function Databases() {
             );
           })}
         </ul>
+        {deleteTarget && (
+          <div className="modal-backdrop">
+            <div className="modal tile">
+              <h2>Delete database</h2>
+              <p className="muted">
+                This removes <strong>{deleteTarget.name}</strong> and all of its backup versions from
+                this appliance.
+              </p>
+              <label>Type <strong>{deleteTarget.name}</strong> to confirm</label>
+              <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
+              <div className="actions">
+                <button
+                  type="button"
+                  className="danger-text"
+                  disabled={deleteConfirm !== deleteTarget.name}
+                  onClick={() => void remove()}
+                >
+                  Delete permanently
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setDeleteTarget(null);
+                    setDeleteConfirm("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
       <SiteFooter />
     </div>

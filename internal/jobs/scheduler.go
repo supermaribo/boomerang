@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -113,6 +114,44 @@ func (s *Scheduler) Reload() {
 			s.ids["db:"+db.ID] = eid
 		}
 	}
+	if _, err := s.cron.AddFunc("0 3 * * 0", func() { s.runWeeklyVerifyNow() }); err != nil {
+		log.Printf("weekly verify cron: %v", err)
+	}
+}
+
+func (s *Scheduler) runWeeklyVerifyNow() {
+	if s.runner == nil {
+		return
+	}
+	weekKey := time.Now().UTC().Format("2006") + "-W" + fmtWeek(time.Now().UTC())
+	if sent, _, _ := s.store.GetMeta("weekly_verify:" + weekKey); sent != "" {
+		return
+	}
+	var started int
+	files, _ := s.store.ListFileServers()
+	for _, f := range files {
+		if !f.Enabled {
+			continue
+		}
+		last, _ := s.store.LastSucceededVersion("file", f.ID)
+		if last == nil {
+			continue
+		}
+		if _, err := s.runner.StartFileVerify(f.ID, last.ID); err != nil {
+			log.Printf("weekly verify %s: %v", f.Name, err)
+			continue
+		}
+		started++
+	}
+	if started > 0 {
+		log.Printf("weekly verify: started %d file backup check(s)", started)
+		_ = s.store.SetMeta("weekly_verify:"+weekKey, time.Now().UTC().Format(time.RFC3339))
+	}
+}
+
+func fmtWeek(t time.Time) string {
+	_, w := t.ISOWeek()
+	return fmt.Sprintf("%02d", w)
 }
 
 func scheduleDue(start string) bool {

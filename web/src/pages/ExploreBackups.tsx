@@ -53,7 +53,12 @@ export default function ExploreBackups() {
   const [showDelete, setShowDelete] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [panel, setPanel] = useState<"browse" | "log">("browse");
-  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<{
+    files: { path: string; size: number }[];
+    totalFiles: number;
+    totalBytes: number;
+    message: string;
+  } | null>(null);
   const [total, setTotal] = useState(0);
 
   const selectedVersion = useMemo(
@@ -171,6 +176,28 @@ export default function ExploreBackups() {
     }
   };
 
+  const loadPreview = async () => {
+    if (!vid || selectedPaths.length === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api<{
+        files: { path: string; size: number }[];
+        totalFiles: number;
+        totalBytes: number;
+        message: string;
+      }>(`/api/file-servers/${id}/versions/${vid}/restore-preview`, {
+        method: "POST",
+        body: JSON.stringify({ paths: selectedPaths }),
+      });
+      setPreview(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "preview failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restore = async () => {
     if (!vid || !server) return;
     setBusy(true);
@@ -185,6 +212,7 @@ export default function ExploreBackups() {
         },
       );
       setInfo("Restore started…");
+      setPreview(null);
       await pollJob(res.jobId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "restore failed");
@@ -461,6 +489,14 @@ export default function ExploreBackups() {
                 </button>
                 <button
                   type="button"
+                  className="ghost"
+                  disabled={busy || selectedPaths.length === 0}
+                  onClick={() => void loadPreview()}
+                >
+                  Preview restore
+                </button>
+                <button
+                  type="button"
                   disabled={busy || selectedPaths.length === 0 || confirm !== server?.name}
                   onClick={() => void restore()}
                 >
@@ -471,6 +507,30 @@ export default function ExploreBackups() {
                 </button>
               </div>
             </div>
+
+            {preview && (
+              <div className="tile restore-preview">
+                <h3>Restore preview</h3>
+                <p className="muted small">{preview.message}</p>
+                <p className="muted small">
+                  {preview.totalFiles} file(s) · {fmtBytes(preview.totalBytes)}
+                </p>
+                <ul className="restore-preview-list plain">
+                  {preview.files.slice(0, 40).map((f) => (
+                    <li key={f.path}>
+                      <code>{f.path}</code>
+                      <span className="muted"> · {fmtBytes(f.size)}</span>
+                    </li>
+                  ))}
+                  {preview.files.length > 40 && (
+                    <li className="muted">…and {preview.files.length - 40} more</li>
+                  )}
+                </ul>
+                <button type="button" className="ghost" onClick={() => setPreview(null)}>
+                  Close preview
+                </button>
+              </div>
+            )}
           </>
         )}
 

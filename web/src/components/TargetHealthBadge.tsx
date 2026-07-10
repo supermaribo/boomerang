@@ -27,6 +27,7 @@ export type TargetHealthRow = {
   healthDetail?: string;
   lastSuccessAt?: string;
   versionCount?: number;
+  nextRunAt?: string;
 };
 
 export function healthMap(rows: TargetHealthRow[]) {

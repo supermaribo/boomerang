@@ -267,6 +267,9 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	}
 	log(fmt.Sprintf("finished: %s", time.Now().UTC().Format(time.RFC3339)))
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
+	if m, err := backup.ReadFileManifest(outDir); err == nil {
+		_ = r.Store.ReplaceManifestIndex(versionID, m.Entries)
+	}
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
 	sink.log(fmt.Sprintf("version %s ready (%s)", versionID, res.Manifest.Kind))

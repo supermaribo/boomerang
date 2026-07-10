@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ func (s *Server) routesTargets(r chi.Router) {
 	r.Get("/file-servers/{id}/versions/{vid}/tree", s.handleFileVersionTree)
 	r.Get("/file-servers/{id}/versions/{vid}/logs", s.handleFileVersionLogs)
 	r.Post("/file-servers/{id}/versions/{vid}/restore", s.handleRestoreFileVersion)
+	r.Post("/file-servers/{id}/versions/{vid}/restore-preview", s.handleRestoreFilePreview)
 	r.Post("/file-servers/{id}/versions/{vid}/verify", s.handleVerifyFileVersion)
 	r.Post("/file-servers/{id}/versions/{vid}/download", s.handleDownloadFileVersion)
 	r.Delete("/file-servers/{id}/versions/{vid}", s.handleDeleteFileVersion)
@@ -310,6 +312,20 @@ func (s *Server) handleUpdateFileServer(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleDeleteFileServer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	fs, err := s.store.GetFileServer(id)
+	if err != nil || fs == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req deleteTargetReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.ConfirmName != fs.Name {
+		writeErr(w, http.StatusBadRequest, "type the file server name to confirm delete")
+		return
+	}
 	if err := s.store.PurgeTarget("file", id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -571,12 +587,14 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetJobLogs(w http.ResponseWriter, r *http.Request) {
-	lines, err := s.store.ListJobLogs(chi.URLParam(r, "id"))
+	limit := queryInt(r, "limit", 2000)
+	offset := queryInt(r, "offset", 0)
+	lines, total, err := s.store.ListJobLogs(chi.URLParam(r, "id"), limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "total": total, "limit": limit, "offset": offset})
 }
 
 func (s *Server) handleGenerateKey(w http.ResponseWriter, _ *http.Request) {
@@ -672,6 +690,20 @@ func (s *Server) handleUpdateDatabase(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	d, err := s.store.GetDatabase(id)
+	if err != nil || d == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req deleteTargetReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.ConfirmName != d.Name {
+		writeErr(w, http.StatusBadRequest, "type the database name to confirm delete")
+		return
+	}
 	if err := s.store.PurgeTarget("db", id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -864,6 +896,22 @@ type simpleError string
 func (e simpleError) Error() string { return string(e) }
 
 func errMsg(s string) error { return simpleError(s) }
+
+type deleteTargetReq struct {
+	ConfirmName string `json:"confirmName"`
+}
+
+func queryInt(r *http.Request, key string, fallback int) int {
+	v := strings.TrimSpace(r.URL.Query().Get(key))
+	if v == "" {
+		return fallback
+	}
+	var n int
+	if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
+		return fallback
+	}
+	return n
+}
 
 func (s *Server) reloadSched() {
 	if s.sched != nil {

@@ -40,6 +40,8 @@ func main() {
 	_ = st.CleanupStaleVersions()
 	_ = st.PruneJobLogs(90)
 
+	jobs.StartCleanupLoop(st)
+
 	box, err := crypto.NewBox(cfg.MasterKey)
 	if err != nil {
 		log.Fatalf("crypto: %v", err)

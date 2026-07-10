@@ -12,6 +12,12 @@ type Dash = {
   databases: number;
   backupCount: number;
   storageBytes: number;
+  storageForecast?: {
+    currentBytes: number;
+    dailyBytes: number;
+    projected30Day: number;
+    sampleDays: number;
+  };
   dataDir: string;
   applianceStatus?: StatusItem[];
 };
@@ -192,6 +198,11 @@ export default function Dashboard({ onLogout }: Props) {
           <article className="dash-tile">
             <h2>Storage</h2>
             <p className="stat stat-compact">{data ? fmtBytes(data.storageBytes) : "—"}</p>
+            {data?.storageForecast && data.storageForecast.dailyBytes > 0 && (
+              <p className="muted small dash-meta">
+                ~{fmtBytes(data.storageForecast.projected30Day)} in 30 days at current rate
+              </p>
+            )}
             <p className="muted small dash-meta">
               Data dir: <code>{data?.dataDir ?? "—"}</code>
             </p>
