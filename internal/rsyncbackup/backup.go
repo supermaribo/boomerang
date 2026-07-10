@@ -58,11 +58,6 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	for _, root := range roots {
 		src := fmt.Sprintf("%s@%s:%s/", target.Username, target.Host, strings.TrimSuffix(root, "/")+"/")
-		if target.SSHHostKey != "" {
-			if err := remote.VerifyHostFingerprint(target.Host, target.Port, target.SSHHostKey); err != nil {
-				return nil, err
-			}
-		}
 		args := []string{"-az", "--numeric-ids", "-e", strings.Join(sshArgs, " ")}
 		for _, ex := range opt.ExcludePaths {
 			ex = strings.TrimSpace(ex)
@@ -107,14 +102,26 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 }
 
 func sshRsyncArgs(target remote.FileTarget) ([]string, func(), error) {
-	cleanup := func() {}
+	var cleanups []func()
+	cleanup := func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}
 	port := target.Port
 	if port == 0 {
 		port = 22
 	}
-	ssh := []string{"ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-p", fmt.Sprintf("%d", port)}
+	sshCmd := []string{"ssh", "-p", fmt.Sprintf("%d", port)}
 	if target.SSHHostKey != "" {
-		ssh = []string{"ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=/dev/null", "-p", fmt.Sprintf("%d", port)}
+		kh, khCleanup, err := remote.KnownHostsFile(target.Host, port, target.SSHHostKey)
+		if err != nil {
+			return nil, cleanup, err
+		}
+		cleanups = append(cleanups, khCleanup)
+		sshCmd = append(sshCmd, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+kh)
+	} else {
+		sshCmd = append(sshCmd, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null")
 	}
 	if target.AuthMode == "key" && target.Secret.PrivateKey != "" {
 		f, err := os.CreateTemp("", "boomerang-rsync-key-*")
@@ -127,10 +134,10 @@ func sshRsyncArgs(target remote.FileTarget) ([]string, func(), error) {
 		}
 		_ = f.Chmod(0o600)
 		_ = f.Close()
-		cleanup = func() { _ = os.Remove(f.Name()) }
-		ssh = append(ssh, "-i", f.Name())
+		cleanups = append(cleanups, func() { _ = os.Remove(f.Name()) })
+		sshCmd = append(sshCmd, "-i", f.Name())
 	}
-	return ssh, cleanup, nil
+	return sshCmd, cleanup, nil
 }
 
 func normalizeRoots(t remote.FileTarget) []string {
