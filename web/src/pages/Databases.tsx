@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../App";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 import { retentionSummary } from "../components/ScheduleRetention";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 
@@ -26,6 +27,7 @@ export type Database = {
   retainHourly: number;
   retainDaily: number;
   retainWeekly: number;
+  retainMonthly: number;
   retainYearly: number;
   enabled: boolean;
 };
@@ -45,6 +47,12 @@ type RestoreState = {
   confirm: string;
 };
 
+type DeleteVersionState = {
+  db: Database;
+  vid: string;
+  confirm: string;
+};
+
 export default function Databases() {
   const [list, setList] = useState<Database[]>([]);
   const [versions, setVersions] = useState<Record<string, Version[]>>({});
@@ -52,6 +60,7 @@ export default function Databases() {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [restore, setRestore] = useState<RestoreState | null>(null);
+  const [deleteVersion, setDeleteVersion] = useState<DeleteVersionState | null>(null);
 
   const load = async () => {
     const dbs = await api<Database[]>("/api/databases");
@@ -159,6 +168,30 @@ export default function Databases() {
     }
   };
 
+  const runDeleteVersion = async () => {
+    if (!deleteVersion) return;
+    if (deleteVersion.confirm !== deleteVersion.db.name) {
+      setError("Type the database name to confirm delete");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      await api(`/api/databases/${deleteVersion.db.id}/versions/${deleteVersion.vid}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmName: deleteVersion.db.name }),
+      });
+      setDeleteVersion(null);
+      setInfo("Backup deleted.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="shell">
       <Nav />
@@ -218,6 +251,40 @@ export default function Databases() {
         </section>
       )}
 
+      {deleteVersion && (
+        <section className="tile restore-modal">
+          <h2>Delete backup — {deleteVersion.db.name}</h2>
+          <p className="muted">
+            Permanently remove this backup from disk. This cannot be undone.
+          </p>
+          <label>Type database name ({deleteVersion.db.name}) to confirm</label>
+          <input
+            value={deleteVersion.confirm}
+            onChange={(e) =>
+              setDeleteVersion((d) => (d ? { ...d, confirm: e.target.value } : d))
+            }
+          />
+          <div className="actions">
+            <button
+              type="button"
+              className="danger-text"
+              disabled={busy || deleteVersion.confirm !== deleteVersion.db.name}
+              onClick={() => void runDeleteVersion()}
+            >
+              {busy ? "Deleting…" : "Delete backup"}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              disabled={busy}
+              onClick={() => setDeleteVersion(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className="tile">
         {list.length === 0 && (
           <div className="empty-state">
@@ -240,7 +307,7 @@ export default function Databases() {
                     · {d.mysqlUser}@{d.mysqlHost}/{d.mysqlDb} · tunnel {d.tunnelMode}
                   </span>
                   <div className="muted small">
-                    {describeSchedule(sched)} · {retentionSummary(d)}
+                    {describeSchedule(sched)} · {retentionSummary(d, sched)}
                     {d.includeTables?.length
                       ? ` · ${d.includeTables.length} table(s)`
                       : " · all tables"}
@@ -255,14 +322,26 @@ export default function Databases() {
                             <span className="muted small">
                               {v.createdAt} · {v.bytes} B
                             </span>
-                            <button
-                              type="button"
-                              className="ghost"
-                              disabled={busy}
-                              onClick={() => void openRestore(d, v.id)}
-                            >
-                              Restore
-                            </button>
+                            <div className="version-row-actions">
+                              <button
+                                type="button"
+                                className="ghost"
+                                disabled={busy}
+                                onClick={() => void openRestore(d, v.id)}
+                              >
+                                Restore
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost danger-text"
+                                disabled={busy}
+                                onClick={() =>
+                                  setDeleteVersion({ db: d, vid: v.id, confirm: "" })
+                                }
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         ))}
                     </div>
@@ -284,6 +363,7 @@ export default function Databases() {
           })}
         </ul>
       </section>
+      <SiteFooter />
     </div>
   );
 }

@@ -115,20 +115,27 @@ func defaultFrom() string {
 
 func sendLocal(from, to, subject, body string) error {
 	msg := buildMessage(from, to, subject, body)
-	if path, err := exec.LookPath("sendmail"); err == nil {
-		cmd := exec.Command(path, "-t", "-oi")
-		cmd.Stdin = strings.NewReader(msg)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("sendmail: %w (%s)", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	}
-	return SendSMTP(SMTPConfig{
+	// Prefer SMTP to local postfix — works when the service runs as a non-root user
+	// (sendmail often needs membership in the postdrop group).
+	err := SendSMTP(SMTPConfig{
 		Host: "127.0.0.1",
 		Port: 25,
 		From: from,
 		To:   to,
 	}, subject, body)
+	if err == nil {
+		return nil
+	}
+	if path, lookErr := exec.LookPath("sendmail"); lookErr == nil {
+		cmd := exec.Command(path, "-t", "-oi")
+		cmd.Stdin = strings.NewReader(msg)
+		if out, sendErr := cmd.CombinedOutput(); sendErr == nil {
+			return nil
+		} else if sendErr != nil {
+			return fmt.Errorf("local mail failed (smtp: %v; sendmail: %w %s)", err, sendErr, strings.TrimSpace(string(out)))
+		}
+	}
+	return fmt.Errorf("local mail failed: %w (is postfix running?)", err)
 }
 
 func buildMessage(from, to, subject, body string) string {

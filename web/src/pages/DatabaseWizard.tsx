@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../App";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 import FirewallReminder from "../components/FirewallReminder";
-import ScheduleRetention from "../components/ScheduleRetention";
+import ScheduleRetention, { retentionSummary } from "../components/ScheduleRetention";
 import {
   ScheduleState,
   buildCron,
@@ -33,9 +34,10 @@ const emptyForm = {
   password: "",
   privateKey: "",
   passphrase: "",
-  retainHourly: 24,
-  retainDaily: 7,
-  retainWeekly: 4,
+  retainHourly: 1,
+  retainDaily: 1,
+  retainWeekly: 1,
+  retainMonthly: 1,
   retainYearly: 1,
   enabled: true,
 };
@@ -92,9 +94,10 @@ export default function DatabaseWizard() {
           sshPort: d.sshPort,
           sshUsername: d.sshUsername,
           authMode: d.authMode,
-          retainHourly: d.retainHourly ?? 24,
-          retainDaily: d.retainDaily ?? 7,
-          retainWeekly: d.retainWeekly ?? 4,
+          retainHourly: d.retainHourly ?? 1,
+          retainDaily: d.retainDaily ?? 1,
+          retainWeekly: d.retainWeekly ?? 1,
+          retainMonthly: d.retainMonthly ?? 1,
           retainYearly: d.retainYearly ?? 1,
           enabled: d.enabled,
         });
@@ -209,6 +212,7 @@ export default function DatabaseWizard() {
       <div className="shell">
         <Nav />
         <p className="muted">Loading…</p>
+        <SiteFooter />
       </div>
     );
   }
@@ -422,6 +426,7 @@ export default function DatabaseWizard() {
               retainHourly: form.retainHourly,
               retainDaily: form.retainDaily,
               retainWeekly: form.retainWeekly,
+              retainMonthly: form.retainMonthly,
               retainYearly: form.retainYearly,
             }}
             onRetention={(k, v) => set(k, v)}
@@ -455,7 +460,7 @@ export default function DatabaseWizard() {
               </dd>
               <dt>Retention</dt>
               <dd>
-                {form.retainHourly}h / {form.retainDaily}d / {form.retainWeekly}w / {form.retainYearly}y
+                {retentionSummary(form, schedule)}
               </dd>
             </dl>
             <label className="check">
@@ -495,6 +500,7 @@ export default function DatabaseWizard() {
           </div>
         </div>
       </section>
+      <SiteFooter />
     </div>
   );
 }

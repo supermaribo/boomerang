@@ -53,8 +53,16 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	defer cleanup()
 
 	roots := normalizeRoots(target)
+	if opt.BaseManifest != nil && opt.BaseVersionID != "" {
+		log("note: RSYNC always captures a full snapshot (not incremental on disk)")
+	}
 	for _, root := range roots {
 		src := fmt.Sprintf("%s@%s:%s/", target.Username, target.Host, strings.TrimSuffix(root, "/")+"/")
+		if target.SSHHostKey != "" {
+			if err := remote.VerifyHostFingerprint(target.Host, target.Port, target.SSHHostKey); err != nil {
+				return nil, err
+			}
+		}
 		args := []string{"-az", "--numeric-ids", "-e", strings.Join(sshArgs, " ")}
 		for _, ex := range opt.ExcludePaths {
 			ex = strings.TrimSpace(ex)
@@ -105,6 +113,9 @@ func sshRsyncArgs(target remote.FileTarget) ([]string, func(), error) {
 		port = 22
 	}
 	ssh := []string{"ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-p", fmt.Sprintf("%d", port)}
+	if target.SSHHostKey != "" {
+		ssh = []string{"ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=/dev/null", "-p", fmt.Sprintf("%d", port)}
+	}
 	if target.AuthMode == "key" && target.Secret.PrivateKey != "" {
 		f, err := os.CreateTemp("", "boomerang-rsync-key-*")
 		if err != nil {
@@ -136,13 +147,9 @@ func normalizeRoots(t remote.FileTarget) []string {
 
 func manifestFromStaging(staging string, target remote.FileTarget, opt Options) (*backup.FileManifest, int, int64, error) {
 	kind := "full"
-	if opt.BaseManifest != nil && opt.BaseVersionID != "" {
-		kind = "incremental"
-	}
-	baseIdx := backup.EntryIndex(opt.BaseManifest)
 	roots := normalizeRoots(target)
 	manifest := &backup.FileManifest{
-		Root: staging, Paths: roots, Kind: kind, BaseVersionID: opt.BaseVersionID,
+		Root: staging, Paths: roots, Kind: kind,
 		Entries: []backup.ManifestEntry{},
 	}
 	var files int
@@ -165,9 +172,6 @@ func manifestFromStaging(staging string, target remote.FileTarget, opt Options) 
 		entry := backup.ManifestEntry{
 			Path: rel, Size: fi.Size(), Mode: fi.Mode().String(),
 			Mtime: fi.ModTime().UTC().Format(time.RFC3339), IsDir: false,
-		}
-		if kind == "incremental" && !backup.Changed(entry, baseIdx) {
-			return nil
 		}
 		manifest.Entries = append(manifest.Entries, entry)
 		files++

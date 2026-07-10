@@ -72,6 +72,7 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	var total int64
 	files := 0
+	skipped := 0
 
 	var walkDir func(remotePath, relPrefix string)
 	walkDir = func(remotePath, relPrefix string) {
@@ -112,12 +113,14 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 			r, err := c.Retr(child)
 			if err != nil {
 				log(fmt.Sprintf("skip %s: %v", rel, err))
+				skipped++
 				continue
 			}
 			n, err := io.Copy(tw, r)
 			_ = r.Close()
 			if err != nil {
 				log(fmt.Sprintf("skip copy %s: %v", rel, err))
+				skipped++
 				continue
 			}
 			total += n
@@ -138,6 +141,9 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	if err := f.Close(); err != nil {
 		return nil, err
+	}
+	if skipped > 0 {
+		return nil, fmt.Errorf("backup incomplete: %d file(s) skipped", skipped)
 	}
 	if err := backup.WriteFileManifest(outDir, &manifest); err != nil {
 		return nil, err

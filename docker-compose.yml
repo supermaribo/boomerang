@@ -11,6 +11,11 @@ services:
     environment:
       BOOMERANG_LISTEN: "0.0.0.0:8080"
       BOOMERANG_DATA_DIR: "/var/lib/boomerang"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
       # Optional: pin master key for restores (64 hex chars = 32 bytes)
       # BOOMERANG_MASTER_KEY: ""
 

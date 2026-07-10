@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../App";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 
 type Version = {
   id: string;
@@ -43,6 +44,8 @@ export default function ExploreBackups() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [deleteVid, setDeleteVid] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [total, setTotal] = useState(0);
 
@@ -51,7 +54,7 @@ export default function ExploreBackups() {
     [selected],
   );
 
-  const loadVersions = async () => {
+  const loadVersions = async (selectId?: string) => {
     const [fs, vs] = await Promise.all([
       api<ServerMeta>(`/api/file-servers/${id}`),
       api<Version[]>(`/api/file-servers/${id}/versions`),
@@ -59,7 +62,18 @@ export default function ExploreBackups() {
     setServer(fs);
     const ok = vs.filter((v) => v.status === "succeeded");
     setVersions(ok);
-    if (!vid && ok[0]) setVid(ok[0].id);
+    const want = selectId !== undefined ? selectId : vid;
+    if (want && ok.some((v) => v.id === want)) {
+      setVid(want);
+    } else if (ok[0]) {
+      setVid(ok[0].id);
+    } else {
+      setVid("");
+      setPath("");
+      setQ("");
+      setSelected({});
+      setEntries([]);
+    }
   };
 
   const loadTree = async (versionId: string, browsePath: string, query: string) => {
@@ -180,6 +194,51 @@ export default function ExploreBackups() {
     }
   };
 
+  const verify = async () => {
+    if (!vid) return;
+    setError("");
+    setInfo("");
+    setBusy(true);
+    try {
+      const res = await api<{ jobId: string }>(`/api/file-servers/${id}/versions/${vid}/verify`, {
+        method: "POST",
+      });
+      setInfo(`Verify job ${res.jobId} started`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "verify failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeVersion = async () => {
+    if (!deleteVid || !server) return;
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      await api(`/api/file-servers/${id}/versions/${deleteVid}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmName: deleteConfirm }),
+      });
+      setInfo("Backup deleted.");
+      setDeleteVid("");
+      setDeleteConfirm("");
+      const nextVid = vid === deleteVid ? "" : vid;
+      if (vid === deleteVid) {
+        setPath("");
+        setQ("");
+        setSelected({});
+        setEntries([]);
+      }
+      await loadVersions(nextVid);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="shell">
       <Nav />
@@ -207,11 +266,13 @@ export default function ExploreBackups() {
           {versions.length === 0 && <p className="muted">No successful backups yet.</p>}
           <ul className="list versions">
             {versions.map((v) => (
-              <li key={v.id}>
+              <li key={v.id} className="version-item">
                 <button
                   type="button"
                   className={vid === v.id ? "version active" : "version"}
                   onClick={() => {
+                    setDeleteVid("");
+                    setDeleteConfirm("");
                     setVid(v.id);
                     setPath("");
                     setQ("");
@@ -221,9 +282,56 @@ export default function ExploreBackups() {
                   <strong>{new Date(v.createdAt + (v.createdAt.includes("T") ? "" : "Z")).toLocaleString()}</strong>
                   <span className="muted small">{fmtBytes(v.bytes)}</span>
                 </button>
+                <button
+                  type="button"
+                  className="ghost danger-text version-delete"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleteVid(v.id);
+                    setDeleteConfirm("");
+                  }}
+                >
+                  Delete
+                </button>
               </li>
             ))}
           </ul>
+          {deleteVid && (
+            <div className="delete-version-box">
+              <p className="muted small">
+                Permanently delete this backup? Incremental backups that depend on it must be
+                removed first.
+              </p>
+              <label>Type file server name ({server?.name}) to confirm</label>
+              <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
+              <div className="actions">
+                <button
+                  type="button"
+                  className="danger-text"
+                  disabled={busy || deleteConfirm !== server?.name}
+                  onClick={() => void removeVersion()}
+                >
+                  {busy ? "Deleting…" : "Delete backup"}
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleteVid("");
+                    setDeleteConfirm("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {vid && (
+            <button type="button" className="ghost" disabled={busy} onClick={() => void verify()}>
+              Verify backup
+            </button>
+          )}
         </section>
 
         <section className="tile wide-explore">
@@ -315,6 +423,7 @@ export default function ExploreBackups() {
           </div>
         </section>
       </div>
+      <SiteFooter />
     </div>
   );
 }

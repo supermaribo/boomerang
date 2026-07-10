@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api } from "../App";
+import SiteFooter from "../components/SiteFooter";
 
 type Props = {
   setupRequired: boolean;
@@ -43,45 +44,55 @@ export default function Gate({ setupRequired, onDone }: Props) {
   return (
     <div className="shell center">
       <div className="atmosphere" aria-hidden />
-      <form className="card gate" onSubmit={submit}>
-        <p className="brand">Boomerang</p>
-        <h1>{setupRequired ? "First flight" : "Welcome back"}</h1>
-        <p className="lede">
-          {setupRequired
-            ? "Set the single admin password for this appliance."
-            : "Sign in to manage file servers, databases, and rollbacks."}
-        </p>
-        <div className="err" role="alert">
-          {error}
-        </div>
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
-          type="password"
-          autoComplete={setupRequired ? "new-password" : "current-password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={setupRequired ? 8 : 1}
-        />
-        {setupRequired && (
-          <>
-            <label htmlFor="confirm">Confirm</label>
-            <input
-              id="confirm"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              minLength={8}
-            />
-          </>
-        )}
-        <button type="submit" disabled={busy}>
-          {busy ? "Working…" : setupRequired ? "Create admin" : "Sign in"}
-        </button>
-      </form>
+      <div className="gate-portal">
+        <form className="card gate" onSubmit={submit}>
+          <p className="brand">Boomerang</p>
+          <h1>{setupRequired ? "First flight" : "Welcome back"}</h1>
+          <p className="lede">
+            {setupRequired
+              ? "Set the single admin password for this appliance."
+              : "Sign in to manage file servers, databases, and rollbacks."}
+          </p>
+          {setupRequired && (
+            <aside className="callout warn setup-security" role="note">
+              <strong>Internal use only.</strong> Boomerang is meant for a private network (home lab,
+              office LAN, VPN). Do not expose port <code>8080</code> to the internet — there is no
+              HTTPS or multi-user hardening. Keep this appliance behind your firewall.
+            </aside>
+          )}
+          <div className="err" role="alert">
+            {error}
+          </div>
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            autoComplete={setupRequired ? "new-password" : "current-password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={setupRequired ? 8 : 1}
+          />
+          {setupRequired && (
+            <>
+              <label htmlFor="confirm">Confirm</label>
+              <input
+                id="confirm"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                required
+                minLength={8}
+              />
+            </>
+          )}
+          <button type="submit" disabled={busy}>
+            {busy ? "Working…" : setupRequired ? "Create admin" : "Sign in"}
+          </button>
+        </form>
+        <SiteFooter portal />
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../App";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 import { retentionSummary } from "../components/ScheduleRetention";
 
@@ -23,7 +24,9 @@ export type FileServer = {
   retainHourly: number;
   retainDaily: number;
   retainWeekly: number;
+  retainMonthly: number;
   retainYearly: number;
+  incrementalEnabled: boolean;
   enabled: boolean;
   hasSecret: boolean;
   publicKey?: string;
@@ -118,7 +121,10 @@ export default function FileServers() {
                     )}
                   </div>
                   <div className="muted small">
-                    {describeSchedule(sched)} · {retentionSummary(f)}
+                    {describeSchedule(sched)} · {retentionSummary(f, sched)}
+                    {f.protocol !== "rsync" && (
+                      <span> · {f.incrementalEnabled !== false ? "incremental" : "full only"}</span>
+                    )}
                   </div>
                 </div>
                 <div className="list-actions">
@@ -140,6 +146,7 @@ export default function FileServers() {
           })}
         </ul>
       </section>
+      <SiteFooter />
     </div>
   );
 }

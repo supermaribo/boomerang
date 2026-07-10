@@ -38,7 +38,10 @@ func Browse(t FileTarget, remotePath string) (*BrowseResult, error) {
 }
 
 func browseSFTP(t FileTarget, remotePath string) (*BrowseResult, error) {
-	client, err := DialSSH(t.Host, t.Port, t.Username, t.AuthMode, t.Secret)
+	client, err := DialSSH(t.Host, t.Port, t.Username, t.AuthMode, t.Secret, HostKeyTrust{
+		KnownFingerprint: t.SSHHostKey,
+		Pin:              t.PinHostKey,
+	})
 	if err != nil {
 		return nil, err
 	}

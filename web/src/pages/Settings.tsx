@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../App";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 import DisasterRecovery from "../components/DisasterRecovery";
 
 type Settings = {
@@ -43,6 +44,14 @@ const ALERTS: {
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("account");
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("tab");
+    if (p === "account" || p === "notifications" || p === "recovery") {
+      setTab(p);
+    }
+  }, []);
+
   const [form, setForm] = useState<Settings>({
     mailMode: "local",
     notifyTo: "",
@@ -301,8 +310,9 @@ export default function SettingsPage() {
                   {form.mailMode === "local" ? (
                     <div className="delivery-panel">
                       <p className="muted small">
-                        Uses this server&apos;s MTA (<code>sendmail</code> / port 25), like PHP{" "}
-                        <code>mail()</code>. Requires <code>postfix</code> on Debian installs.
+                        Delivers via postfix on <code>127.0.0.1:25</code> (installed by default on
+                        Debian). Best for addresses on this server (e.g. <code>root@localhost</code>
+                        ). For Gmail or other external inboxes, use <strong>Custom SMTP</strong>.
                       </p>
                       <label>From address (optional)</label>
                       <input
@@ -383,6 +393,7 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+      <SiteFooter />
     </div>
   );
 }

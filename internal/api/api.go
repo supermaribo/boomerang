@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ type Server struct {
 
 type session struct {
 	expires time.Time
+	epoch   int
 }
 
 func New(cfg *config.Config, st *store.Store, box *crypto.Box, webFS fs.FS, runner *jobs.Runner) *Server {
@@ -75,8 +77,43 @@ func (s *Server) Handler() http.Handler {
 	return r
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.writeHealth(w, false)
+}
+
+func (s *Server) writeHealth(w http.ResponseWriter, _ bool) {
+	status := "ok"
+	code := http.StatusOK
+	checks := map[string]any{}
+
+	if err := s.store.DB.Ping(); err != nil {
+		checks["database"] = false
+		status = "degraded"
+		code = http.StatusServiceUnavailable
+	} else {
+		checks["database"] = true
+	}
+
+	if st, err := os.Stat(s.cfg.DataDir); err != nil || !st.IsDir() {
+		checks["dataDir"] = false
+		status = "degraded"
+		code = http.StatusServiceUnavailable
+	} else {
+		checks["dataDir"] = true
+	}
+
+	if free, ok := diskFree(s.cfg.DataDir); ok {
+		checks["diskFreeBytes"] = free
+	}
+
+	if s.runner != nil {
+		running, queued := s.runner.Stats()
+		checks["jobsRunning"] = running
+		checks["jobsQueued"] = queued
+	}
+
+	checks["status"] = status
+	writeJSON(w, code, checks)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -205,11 +242,15 @@ func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 	fsCount, _ := s.store.CountFileServers()
 	dbCount, _ := s.store.CountDatabases()
+	backupCount, _ := s.store.CountBackupVersions()
+	storageBytes, _ := s.store.SumBackupBytes()
 	recent, _ := s.store.ListRecentVersions(15)
 	jobs, _ := s.store.ListRecentJobs(10)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"fileServers":    fsCount,
 		"databases":      dbCount,
+		"backupCount":    backupCount,
+		"storageBytes":   storageBytes,
 		"dataDir":        s.cfg.DataDir,
 		"recentBackups":  recent,
 		"recentJobs":     jobs,
@@ -225,7 +266,8 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		s.mu.Lock()
 		sess, ok := s.sess[c.Value]
-		if ok && time.Now().Before(sess.expires) {
+		epoch := s.store.SessionEpoch()
+		if ok && time.Now().Before(sess.expires) && sess.epoch == epoch {
 			sess.expires = time.Now().Add(24 * time.Hour)
 			s.sess[c.Value] = sess
 			s.mu.Unlock()
@@ -247,7 +289,7 @@ func (s *Server) createSession() (string, error) {
 	}
 	token := hex.EncodeToString(b)
 	s.mu.Lock()
-	s.sess[token] = session{expires: time.Now().Add(24 * time.Hour)}
+	s.sess[token] = session{expires: time.Now().Add(24 * time.Hour), epoch: s.store.SessionEpoch()}
 	s.mu.Unlock()
 	return token, nil
 }

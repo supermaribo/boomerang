@@ -35,8 +35,9 @@ type Target struct {
 	SSHHost   string
 	SSHPort   int
 	SSHUser   string
-	SSHAuth   string
-	SSHSecret remote.AuthSecret
+	SSHAuth       string
+	SSHSecret     remote.AuthSecret
+	SSHHostKey    string
 }
 
 type Result struct {
@@ -62,7 +63,9 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 	var localListener net.Listener
 	if t.UseTunnel {
 		log("opening SSH tunnel for MySQL")
-		tunnel, err = remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret)
+		tunnel, err = remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret, remote.HostKeyTrust{
+			KnownFingerprint: t.SSHHostKey,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("ssh tunnel: %w", err)
 		}
@@ -82,15 +85,22 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 
+	defaults, cleanupDefaults, err := defaultsExtraFile(host, port, t.MysqlUser, t.MysqlPass)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupDefaults()
+
 	args := []string{
-		"-h", host,
-		"-P", fmt.Sprintf("%d", port),
-		"-u", t.MysqlUser,
+		defaults,
+	}
+	args = append(args, sslDisableArgs(mysqldump)...)
+	args = append(args,
 		"--single-transaction",
 		"--routines",
 		"--triggers",
 		t.MysqlDB,
-	}
+	)
 	if len(t.IncludeTables) > 0 {
 		args = append(args, t.IncludeTables...)
 		log(fmt.Sprintf("dumping %d table(s)", len(t.IncludeTables)))
@@ -98,7 +108,6 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 		log("dumping all tables")
 	}
 	cmd := exec.CommandContext(ctx, mysqldump, args...)
-	cmd.Env = append(os.Environ(), "MYSQL_PWD="+t.MysqlPass)
 
 	outPath := filepath.Join(outDir, "full.sql.zst")
 	out, err := os.Create(outPath)

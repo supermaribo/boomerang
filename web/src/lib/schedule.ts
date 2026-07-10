@@ -133,3 +133,16 @@ function parseTime(t: string): [number, number] {
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
+
+export type RetentionTier = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+/** Retention periods that can apply given how often backups run. */
+export function retentionTiersForFrequency(freq: ScheduleFrequency): RetentionTier[] {
+  if (freq === "weekly") {
+    return ["weekly", "monthly", "yearly"];
+  }
+  if (freq === "daily") {
+    return ["daily", "weekly", "monthly", "yearly"];
+  }
+  return ["hourly", "daily", "weekly", "monthly", "yearly"];
+}

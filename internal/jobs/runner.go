@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,90 +25,179 @@ type Runner struct {
 	Box     *crypto.Box
 	DataDir string
 	mu      sync.Mutex
-	active  int
+	running int
 	max     int
+	busy    map[string]bool
+	queue   []queuedWork
 
 	notifyLoad func() (notify.MailConfig, error)
 	notifyName func(targetType, targetID string) string
 }
 
-func NewRunner(st *store.Store, box *crypto.Box, dataDir string) *Runner {
-	return &Runner{Store: st, Box: box, DataDir: dataDir, max: 2}
+type queuedWork struct {
+	jobID     string
+	targetKey string
+	run       func()
 }
 
-func (r *Runner) acquire() error {
+func NewRunner(st *store.Store, box *crypto.Box, dataDir string, maxConcurrent int) *Runner {
+	if maxConcurrent < 1 {
+		maxConcurrent = defaultMaxJobs()
+	}
+	return &Runner{
+		Store:   st,
+		Box:     box,
+		DataDir: dataDir,
+		max:     maxConcurrent,
+		busy:    map[string]bool{},
+	}
+}
+
+func defaultMaxJobs() int {
+	if v := os.Getenv("BOOMERANG_MAX_JOBS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	n := runtime.NumCPU() * 2
+	if n < 4 {
+		return 4
+	}
+	if n > 16 {
+		return 16
+	}
+	return n
+}
+
+func targetKey(targetType, targetID string) string {
+	return targetType + ":" + targetID
+}
+
+func (r *Runner) submit(targetType, targetID, jobID string, run func()) {
+	target := targetKey(targetType, targetID)
+	work := queuedWork{jobID: jobID, targetKey: target, run: run}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.active >= r.max {
-		return fmt.Errorf("too many jobs running")
-	}
-	r.active++
-	return nil
+	r.queue = append(r.queue, work)
+	r.pumpLocked()
 }
 
-func (r *Runner) dec() {
+func (r *Runner) pumpLocked() {
+	for {
+		progressed := false
+		for i := 0; i < len(r.queue); i++ {
+			w := r.queue[i]
+			if r.running >= r.max || r.busy[w.targetKey] {
+				continue
+			}
+			r.queue = append(r.queue[:i], r.queue[i+1:]...)
+			r.running++
+			r.busy[w.targetKey] = true
+			progressed = true
+			go r.execute(w)
+			i--
+		}
+		if !progressed {
+			return
+		}
+	}
+}
+
+func (r *Runner) execute(w queuedWork) {
+	if r.Store != nil {
+		_ = r.Store.UpdateJob(w.jobID, "running", "", time.Now().UTC(), nil)
+	}
+	w.run()
+
 	r.mu.Lock()
-	r.active--
+	r.running--
+	delete(r.busy, w.targetKey)
+	r.pumpLocked()
 	r.mu.Unlock()
 }
 
-func (r *Runner) StartFileBackup(fileServerID string) (string, error) {
-	if err := r.acquire(); err != nil {
+func (r *Runner) Stats() (running, queued int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running, len(r.queue)
+}
+
+func (r *Runner) StartFileVerify(fileServerID, versionID string) (string, error) {
+	jobID := uuid.NewString()
+	if err := r.Store.CreateJob(jobID, "file", fileServerID, "verify"); err != nil {
 		return "", err
 	}
+	r.submit("file", fileServerID, jobID, func() {
+		r.runFileVerify(jobID, fileServerID, versionID)
+	})
+	return jobID, nil
+}
+
+func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
+	_ = r.Store.AppendJobLog(jobID, "starting backup verify")
+	ver, err := r.Store.GetVersion(versionID)
+	if err != nil || ver == nil || ver.TargetID != fileServerID || ver.Status != "succeeded" {
+		r.fail(jobID, "version not found or not successful")
+		return
+	}
+	if err := backup.VerifyFileBackup(ver.PathOnDisk, r.Box); err != nil {
+		r.fail(jobID, err.Error())
+		return
+	}
+	now := time.Now().UTC()
+	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
+	_ = r.Store.AppendJobLog(jobID, "backup verified OK")
+	r.notifyJob(jobID, false, "")
+}
+
+func (r *Runner) StartFileBackup(fileServerID string) (string, error) {
 	jobID := uuid.NewString()
 	versionID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "file", fileServerID, "backup"); err != nil {
-		r.dec()
 		return "", err
 	}
-	go r.runFileBackup(jobID, versionID, fileServerID)
+	r.submit("file", fileServerID, jobID, func() {
+		r.runFileBackup(jobID, versionID, fileServerID)
+	})
 	return jobID, nil
 }
 
 func (r *Runner) StartFileRestore(fileServerID, versionID string, paths []string) (string, error) {
-	if err := r.acquire(); err != nil {
-		return "", err
-	}
 	jobID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "file", fileServerID, "restore"); err != nil {
-		r.dec()
 		return "", err
 	}
-	go r.runFileRestore(jobID, fileServerID, versionID, paths)
+	r.submit("file", fileServerID, jobID, func() {
+		r.runFileRestore(jobID, fileServerID, versionID, paths)
+	})
 	return jobID, nil
 }
 
 func (r *Runner) StartDBBackup(databaseID string) (string, error) {
-	if err := r.acquire(); err != nil {
-		return "", err
-	}
 	jobID := uuid.NewString()
 	versionID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "db", databaseID, "backup"); err != nil {
-		r.dec()
 		return "", err
 	}
-	go r.runDBBackup(jobID, versionID, databaseID)
+	r.submit("db", databaseID, jobID, func() {
+		r.runDBBackup(jobID, versionID, databaseID)
+	})
 	return jobID, nil
 }
 
 func (r *Runner) StartDBRestore(databaseID, versionID string, tables []string) (string, error) {
-	if err := r.acquire(); err != nil {
-		return "", err
-	}
 	jobID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "db", databaseID, "restore"); err != nil {
-		r.dec()
 		return "", err
 	}
-	go r.runDBRestore(jobID, databaseID, versionID, tables)
+	r.submit("db", databaseID, jobID, func() {
+		r.runDBRestore(jobID, databaseID, versionID, tables)
+	})
 	return jobID, nil
 }
 
 func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
-	defer r.dec()
-	_ = r.Store.UpdateJob(jobID, "running", "", time.Now().UTC(), nil)
 	_ = r.Store.AppendJobLog(jobID, "starting file backup")
 
 	fs, err := r.Store.GetFileServer(fileServerID)
@@ -121,10 +212,12 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	}
 
 	opt := filebackup.Options{Box: r.Box, ExcludePaths: fs.ExcludePaths}
-	if prev, _ := r.Store.LastSucceededVersion("file", fileServerID); prev != nil {
-		if m, err := backup.ReadFileManifest(prev.PathOnDisk); err == nil {
-			opt.BaseManifest = m
-			opt.BaseVersionID = prev.ID
+	if fs.IncrementalEnabled && fs.Protocol != "rsync" {
+		if prev, _ := r.Store.LastSucceededVersion("file", fileServerID); prev != nil {
+			if m, err := backup.ReadFileManifest(prev.PathOnDisk); err == nil {
+				opt.BaseManifest = m
+				opt.BaseVersionID = prev.ID
+			}
 		}
 	}
 
@@ -134,6 +227,7 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 		_ = r.Store.AppendJobLog(jobID, line)
 	})
 	if err != nil {
+		_ = os.RemoveAll(outDir)
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
 		r.fail(jobID, err.Error())
 		return
@@ -144,14 +238,13 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	_ = r.Store.AppendJobLog(jobID, fmt.Sprintf("version %s ready (%s)", versionID, res.Manifest.Kind))
 	r.notifyJob(jobID, false, "")
 	_ = r.Store.PruneVersions("file", fileServerID, store.Retention{
-		Hourly: fs.RetainHourly, Daily: fs.RetainDaily, Weekly: fs.RetainWeekly, Yearly: fs.RetainYearly,
+		Hourly: fs.RetainHourly, Daily: fs.RetainDaily, Weekly: fs.RetainWeekly,
+		Monthly: fs.RetainMonthly, Yearly: fs.RetainYearly,
 		Count: fs.RetainCount, Days: fs.RetainDays,
 	})
 }
 
 func (r *Runner) runFileRestore(jobID, fileServerID, versionID string, paths []string) {
-	defer r.dec()
-	_ = r.Store.UpdateJob(jobID, "running", "", time.Now().UTC(), nil)
 	_ = r.Store.AppendJobLog(jobID, fmt.Sprintf("starting restore of %d path(s)", len(paths)))
 
 	fs, err := r.Store.GetFileServer(fileServerID)
@@ -187,8 +280,6 @@ func (r *Runner) runFileRestore(jobID, fileServerID, versionID string, paths []s
 }
 
 func (r *Runner) runDBRestore(jobID, databaseID, versionID string, tables []string) {
-	defer r.dec()
-	_ = r.Store.UpdateJob(jobID, "running", "", time.Now().UTC(), nil)
 	_ = r.Store.AppendJobLog(jobID, "starting database restore")
 
 	db, err := r.Store.GetDatabase(databaseID)
@@ -262,6 +353,7 @@ func (r *Runner) mysqlTarget(db *store.Database) (mysqlbackup.Target, error) {
 		t.SSHUser = fs.Username
 		t.SSHAuth = fs.AuthMode
 		t.SSHSecret = secret
+		t.SSHHostKey = fs.SSHHostKey
 		t.MysqlHost = "127.0.0.1"
 	case "inline":
 		secret, err := r.sshSecret(db.EncSSHSecret)
@@ -279,8 +371,6 @@ func (r *Runner) mysqlTarget(db *store.Database) (mysqlbackup.Target, error) {
 }
 
 func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
-	defer r.dec()
-	_ = r.Store.UpdateJob(jobID, "running", "", time.Now().UTC(), nil)
 	_ = r.Store.AppendJobLog(jobID, "starting database backup")
 
 	db, err := r.Store.GetDatabase(databaseID)
@@ -300,11 +390,13 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 		_ = r.Store.AppendJobLog(jobID, line)
 	})
 	if err != nil {
+		_ = os.RemoveAll(outDir)
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
 		r.fail(jobID, err.Error())
 		return
 	}
 	if err := r.encryptSQL(outDir); err != nil {
+		_ = os.RemoveAll(outDir)
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
 		r.fail(jobID, err.Error())
 		return
@@ -315,7 +407,8 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 	_ = r.Store.AppendJobLog(jobID, fmt.Sprintf("version %s ready (%d tables)", versionID, len(res.Tables)))
 	r.notifyJob(jobID, false, "")
 	_ = r.Store.PruneVersions("db", databaseID, store.Retention{
-		Hourly: db.RetainHourly, Daily: db.RetainDaily, Weekly: db.RetainWeekly, Yearly: db.RetainYearly,
+		Hourly: db.RetainHourly, Daily: db.RetainDaily, Weekly: db.RetainWeekly,
+		Monthly: db.RetainMonthly, Yearly: db.RetainYearly,
 		Count: db.RetainCount, Days: db.RetainDays,
 	})
 }
@@ -336,9 +429,17 @@ func (r *Runner) fileTarget(fs *store.FileServer) (remote.FileTarget, error) {
 	if err != nil {
 		return remote.FileTarget{}, err
 	}
+	var pin func(string) error
+	if fs.SSHHostKey == "" && (fs.Protocol == "sftp" || fs.Protocol == "rsync") {
+		id := fs.ID
+		pin = func(fp string) error {
+			return r.Store.SetFileServerSSHHostKey(id, fp)
+		}
+	}
 	return remote.FileTarget{
 		Protocol: fs.Protocol, Host: fs.Host, Port: fs.Port, Username: fs.Username,
 		RemoteRoot: fs.RemoteRoot, IncludePaths: fs.IncludePaths, AuthMode: fs.AuthMode, Secret: secret,
+		SSHHostKey: fs.SSHHostKey, PinHostKey: pin,
 	}, nil
 }
 
@@ -366,7 +467,7 @@ func (r *Runner) notifyJob(jobID string, failed bool, errMsg string) {
 	}
 	want := false
 	switch j.Kind {
-	case "backup":
+	case "backup", "verify":
 		want = failed && cfg.Alerts.BackupFailure || !failed && cfg.Alerts.BackupSuccess
 	case "restore":
 		want = failed && cfg.Alerts.RestoreFailure || !failed && cfg.Alerts.RestoreSuccess

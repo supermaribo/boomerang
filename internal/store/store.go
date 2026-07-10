@@ -19,7 +19,7 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)")
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +108,23 @@ func (s *Store) SetMeta(key, value string) error {
 	return err
 }
 
+func (s *Store) SessionEpoch() int {
+	v, ok, _ := s.GetMeta("session_epoch")
+	if !ok {
+		return 1
+	}
+	var n int
+	fmt.Sscanf(v, "%d", &n)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func (s *Store) BumpSessionEpoch() error {
+	return s.SetMeta("session_epoch", fmt.Sprintf("%d", s.SessionEpoch()+1))
+}
+
 func (s *Store) IsSetup() (bool, error) {
 	_, ok, err := s.GetMeta("admin_password_hash")
 	return ok, err
@@ -127,5 +144,17 @@ func (s *Store) CountFileServers() (int, error) {
 func (s *Store) CountDatabases() (int, error) {
 	var n int
 	err := s.DB.QueryRow(`SELECT COUNT(*) FROM databases`).Scan(&n)
+	return n, err
+}
+
+func (s *Store) CountBackupVersions() (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM backup_versions WHERE status='succeeded'`).Scan(&n)
+	return n, err
+}
+
+func (s *Store) SumBackupBytes() (int64, error) {
+	var n int64
+	err := s.DB.QueryRow(`SELECT COALESCE(SUM(bytes), 0) FROM backup_versions WHERE status='succeeded'`).Scan(&n)
 	return n, err
 }

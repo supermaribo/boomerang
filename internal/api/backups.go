@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/boomerang-backup/boomerang/internal/archive"
 	"github.com/boomerang-backup/boomerang/internal/filebackup"
+	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -170,6 +172,60 @@ func (s *Server) handleRestoreFileVersion(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = s.store.Audit("file_restore", fsID+":"+vid)
+	writeJSON(w, http.StatusAccepted, map[string]string{"jobId": jobID})
+}
+
+type deleteVersionReq struct {
+	ConfirmName string `json:"confirmName"`
+}
+
+func (s *Server) handleDeleteFileVersion(w http.ResponseWriter, r *http.Request) {
+	fsID := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	fs, err := s.store.GetFileServer(fsID)
+	if err != nil || fs == nil {
+		writeErr(w, http.StatusNotFound, "file server not found")
+		return
+	}
+	var req deleteVersionReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.ConfirmName != fs.Name {
+		writeErr(w, http.StatusBadRequest, "type the file server name to confirm delete")
+		return
+	}
+	if err := s.store.DeleteVersion("file", fsID, vid); err != nil {
+		if errors.Is(err, store.ErrVersionNotFound) {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		var inUse store.ErrVersionInUse
+		if errors.As(err, &inUse) {
+			writeErr(w, http.StatusConflict, inUse.Error())
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = s.store.Audit("file_version_delete", fsID+":"+vid)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleVerifyFileVersion(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeErr(w, http.StatusServiceUnavailable, "backup runner unavailable")
+		return
+	}
+	fsID := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	jobID, err := s.runner.StartFileVerify(fsID, vid)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = s.store.Audit("file_verify", fsID+":"+vid)
 	writeJSON(w, http.StatusAccepted, map[string]string{"jobId": jobID})
 }
 

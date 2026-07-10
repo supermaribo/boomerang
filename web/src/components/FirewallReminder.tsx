@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { api } from "../App";
 
 type ApplianceInfo = {
-  sourceIPs: string[];
+  localIPs?: string[];
+  externalIP?: string;
+  sourceIPs?: string[];
 };
 
 type Props = {
@@ -12,11 +14,15 @@ type Props = {
 };
 
 export default function FirewallReminder({ targetHost, port, protocol }: Props) {
-  const [ips, setIps] = useState<string[]>([]);
+  const [localIPs, setLocalIPs] = useState<string[]>([]);
+  const [externalIP, setExternalIP] = useState("");
 
   useEffect(() => {
     api<ApplianceInfo>("/api/appliance")
-      .then((info) => setIps(info.sourceIPs || []))
+      .then((info) => {
+        setLocalIPs(info.localIPs?.length ? info.localIPs : info.sourceIPs || []);
+        setExternalIP(info.externalIP || "");
+      })
       .catch(() => undefined);
   }, []);
 
@@ -33,30 +39,42 @@ export default function FirewallReminder({ targetHost, port, protocol }: Props) 
         ({protocol}). On the <strong>remote</strong> host, allow that traffic from this backup
         server&apos;s IP — not from the whole internet.
       </p>
-      {ips.length > 0 ? (
-        <p>
-          This Boomerang&apos;s address(es):{" "}
-          {ips.map((ip, i) => (
-            <span key={ip}>
-              {i > 0 && ", "}
-              <code>{ip}</code>
+      <div className="ip-list">
+        {localIPs.length > 0 && (
+          <p>
+            <strong>LAN / internal:</strong>{" "}
+            {localIPs.map((ip, i) => (
+              <span key={ip}>
+                {i > 0 && ", "}
+                <code>{ip}</code>
+              </span>
+            ))}
+          </p>
+        )}
+        {externalIP && !localIPs.includes(externalIP) && (
+          <p>
+            <strong>Public / external:</strong> <code>{externalIP}</code>
+            <span className="muted small">
+              {" "}
+              — use this if your sites see a NAT or router address instead of the LAN IP
             </span>
-          ))}
-        </p>
-      ) : (
-        <p className="muted small">
-          Could not detect this server&apos;s IP automatically. Use the address your remote
-          firewall sees when Boomerang connects (check your router/NAT if needed).
-        </p>
-      )}
+          </p>
+        )}
+        {localIPs.length === 0 && !externalIP && (
+          <p className="muted small">
+            Could not detect this server&apos;s IP automatically. Use the address your remote
+            firewall sees when Boomerang connects.
+          </p>
+        )}
+      </div>
       <ul className="plain small">
         <li>
           <strong>Do not</strong> open {protocol} to <code>0.0.0.0/0</code> or <code>::/0</code> —
           that exposes your site to the world.
         </li>
         <li>
-          Prefer a host firewall rule: allow port <code>{port}</code> only from the Boomerang
-          IP(s) above.
+          Allow port <code>{port}</code> only from the Boomerang IP(s) above (internal and/or
+          external).
         </li>
         <li>
           Cloud panels (CloudPanel, ufw, csf) often have an &quot;allow IP&quot; option — use that

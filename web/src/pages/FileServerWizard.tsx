@@ -2,8 +2,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../App";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 import FirewallReminder from "../components/FirewallReminder";
-import ScheduleRetention from "../components/ScheduleRetention";
+import ScheduleRetention, { retentionSummary } from "../components/ScheduleRetention";
 import {
   ScheduleState,
   buildCron,
@@ -16,7 +17,7 @@ import type { FileServer } from "./FileServers";
 type DirEntry = { name: string; path: string; isDir: boolean; size: number };
 type BrowseResult = { path: string; parent: string; entries: DirEntry[] };
 
-const STEPS = ["Connection", "Authentication", "Paths", "Schedule", "Review"] as const;
+const STEPS = ["Connection", "Authentication", "Paths", "Schedule & backup", "Review"] as const;
 
 function commonParent(paths: string[]): string {
   if (paths.length === 0) return "/";
@@ -45,10 +46,12 @@ const emptyForm = {
   privateKey: "",
   passphrase: "",
   publicKey: "",
-  retainHourly: 24,
-  retainDaily: 7,
-  retainWeekly: 4,
+  retainHourly: 1,
+  retainDaily: 1,
+  retainWeekly: 1,
+  retainMonthly: 1,
   retainYearly: 1,
+  incrementalEnabled: true,
   enabled: true,
 };
 
@@ -86,10 +89,12 @@ export default function FileServerWizard() {
           excludePaths: f.excludePaths || [],
           authMode: f.authMode,
           publicKey: f.publicKey || "",
-          retainHourly: f.retainHourly ?? 24,
-          retainDaily: f.retainDaily ?? 7,
-          retainWeekly: f.retainWeekly ?? 4,
+          retainHourly: f.retainHourly ?? 1,
+          retainDaily: f.retainDaily ?? 1,
+          retainWeekly: f.retainWeekly ?? 1,
+          retainMonthly: f.retainMonthly ?? 1,
           retainYearly: f.retainYearly ?? 1,
+          incrementalEnabled: f.incrementalEnabled ?? true,
           enabled: f.enabled,
         });
         setSelected(
@@ -226,6 +231,17 @@ export default function FileServerWizard() {
     return true;
   };
 
+  const goToStep = (i: number) => {
+    if (!editing && i > step) return;
+    setStep(i);
+    if (i === 2) {
+      const start =
+        selected[0]?.replace(/\/[^/]+$/, "") ||
+        (form.remoteRoot !== "/" ? form.remoteRoot : "");
+      void loadBrowse(start);
+    }
+  };
+
   const goNext = async () => {
     setError("");
     setInfo("");
@@ -279,6 +295,7 @@ export default function FileServerWizard() {
       <div className="shell">
         <Nav />
         <p className="muted">Loading…</p>
+        <SiteFooter />
       </div>
     );
   }
@@ -296,7 +313,12 @@ export default function FileServerWizard() {
       <ol className="wizard-steps">
         {STEPS.map((label, i) => (
           <li key={label} className={i === step ? "active" : i < step ? "done" : ""}>
-            <button type="button" onClick={() => i < step && setStep(i)} disabled={i > step}>
+            <button
+              type="button"
+              onClick={() => goToStep(i)}
+              disabled={!editing && i > step}
+              title={editing ? `Jump to ${label}` : undefined}
+            >
               {label}
             </button>
           </li>
@@ -321,6 +343,7 @@ export default function FileServerWizard() {
                   protocol: p,
                   port: p === "ftp" || p === "ftps" ? 21 : 22,
                   authMode: p === "ftp" || p === "ftps" ? "password" : f.authMode,
+                  incrementalEnabled: p === "rsync" ? false : f.incrementalEnabled,
                 }));
               }}
             >
@@ -507,17 +530,43 @@ export default function FileServerWizard() {
         )}
 
         {step === 3 && (
-          <ScheduleRetention
+          <>
+            {form.protocol === "rsync" ? (
+              <p className="callout warn">
+                RSYNC always captures a <strong>full snapshot</strong> each run (not incremental on disk).
+              </p>
+            ) : (
+              <div className="wizard-section">
+                <h3 className="wizard-section-title">Backup mode</h3>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={form.incrementalEnabled}
+                    onChange={(e) => set("incrementalEnabled", e.target.checked)}
+                  />
+                  Incremental backups — only copy files changed since the last successful backup
+                </label>
+                <p className="muted small">
+                  Turn off to run a full backup every time (slower, uses more disk).
+                </p>
+              </div>
+            )}
+            <div className="wizard-section">
+              <h3 className="wizard-section-title">Schedule & retention</h3>
+              <ScheduleRetention
             schedule={schedule}
             onSchedule={setSchedule}
             retention={{
               retainHourly: form.retainHourly,
               retainDaily: form.retainDaily,
               retainWeekly: form.retainWeekly,
+              retainMonthly: form.retainMonthly,
               retainYearly: form.retainYearly,
             }}
             onRetention={(k, v) => set(k, v)}
           />
+            </div>
+          </>
         )}
 
         {step === 4 && (
@@ -562,8 +611,14 @@ export default function FileServerWizard() {
               </dd>
               <dt>Retention</dt>
               <dd>
-                {form.retainHourly}h / {form.retainDaily}d / {form.retainWeekly}w / {form.retainYearly}y
+                {retentionSummary(form, schedule)}
               </dd>
+              {form.protocol !== "rsync" && (
+                <>
+                  <dt>Incremental</dt>
+                  <dd>{form.incrementalEnabled ? "Enabled" : "Disabled (full backup each run)"}</dd>
+                </>
+              )}
             </dl>
             <label className="check">
               <input
@@ -598,6 +653,7 @@ export default function FileServerWizard() {
           </div>
         </div>
       </section>
+      <SiteFooter />
     </div>
   );
 }

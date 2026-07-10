@@ -35,12 +35,15 @@ func main() {
 		log.Printf("cleaned up %d orphaned backup target(s)", n)
 	}
 
+	_ = st.CleanupStaleVersions()
+	_ = st.PruneJobLogs(90)
+
 	box, err := crypto.NewBox(cfg.MasterKey)
 	if err != nil {
 		log.Fatalf("crypto: %v", err)
 	}
 
-	runner := jobs.NewRunner(st, box, cfg.DataDir)
+	runner := jobs.NewRunner(st, box, cfg.DataDir, cfg.MaxConcurrentJobs)
 	sched := jobs.NewScheduler(runner, st)
 
 	var webFS fs.FS
@@ -52,7 +55,7 @@ func main() {
 
 	srv := api.New(cfg, st, box, webFS, runner)
 	srv.SetScheduler(sched)
-	runner.SetNotifier(srv.LoadMail, func(targetType, targetID string) string {
+	nameFor := func(targetType, targetID string) string {
 		switch targetType {
 		case "file":
 			if f, _ := st.GetFileServer(targetID); f != nil {
@@ -64,12 +67,14 @@ func main() {
 			}
 		}
 		return targetID
-	})
+	}
+	runner.SetNotifier(srv.LoadMail, nameFor)
+	sched.SetMissedNotifier(srv.LoadMail, nameFor)
 
 	sched.Start()
 	defer sched.Stop()
 
-	log.Printf("Boomerang listening on http://%s (data: %s)", cfg.ListenAddr, cfg.DataDir)
+	log.Printf("Boomerang listening on http://%s (data: %s, max concurrent jobs: %d)", cfg.ListenAddr, cfg.DataDir, cfg.MaxConcurrentJobs)
 	if err := http.ListenAndServe(cfg.ListenAddr, srv.Handler()); err != nil {
 		log.Printf("server stopped: %v", err)
 		os.Exit(1)

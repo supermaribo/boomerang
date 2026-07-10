@@ -30,7 +30,9 @@ func (s *Server) routesTargets(r chi.Router) {
 	r.Get("/file-servers/{id}/versions/{vid}", s.handleGetFileVersion)
 	r.Get("/file-servers/{id}/versions/{vid}/tree", s.handleFileVersionTree)
 	r.Post("/file-servers/{id}/versions/{vid}/restore", s.handleRestoreFileVersion)
+	r.Post("/file-servers/{id}/versions/{vid}/verify", s.handleVerifyFileVersion)
 	r.Post("/file-servers/{id}/versions/{vid}/download", s.handleDownloadFileVersion)
+	r.Delete("/file-servers/{id}/versions/{vid}", s.handleDeleteFileVersion)
 	r.Post("/keys/generate", s.handleGenerateKey)
 
 	r.Get("/databases", s.handleListDatabases)
@@ -65,8 +67,10 @@ type fileServerDTO struct {
 	RetainHourly  int      `json:"retainHourly"`
 	RetainDaily   int      `json:"retainDaily"`
 	RetainWeekly  int      `json:"retainWeekly"`
-	RetainYearly  int      `json:"retainYearly"`
-	Enabled       bool     `json:"enabled"`
+	RetainMonthly int      `json:"retainMonthly"`
+	RetainYearly         int      `json:"retainYearly"`
+	IncrementalEnabled   bool     `json:"incrementalEnabled"`
+	Enabled              bool     `json:"enabled"`
 	HasSecret     bool     `json:"hasSecret"`
 	PublicKey     string   `json:"publicKey,omitempty"`
 	CreatedAt     string   `json:"createdAt,omitempty"`
@@ -94,8 +98,10 @@ type fileServerWrite struct {
 	RetainHourly  int      `json:"retainHourly"`
 	RetainDaily   int      `json:"retainDaily"`
 	RetainWeekly  int      `json:"retainWeekly"`
-	RetainYearly  int      `json:"retainYearly"`
-	Enabled       *bool    `json:"enabled"`
+	RetainMonthly int      `json:"retainMonthly"`
+	RetainYearly       int      `json:"retainYearly"`
+	IncrementalEnabled *bool    `json:"incrementalEnabled"`
+	Enabled            *bool    `json:"enabled"`
 }
 
 type databaseDTO struct {
@@ -119,6 +125,7 @@ type databaseDTO struct {
 	RetainHourly  int     `json:"retainHourly"`
 	RetainDaily   int     `json:"retainDaily"`
 	RetainWeekly  int     `json:"retainWeekly"`
+	RetainMonthly int     `json:"retainMonthly"`
 	RetainYearly  int     `json:"retainYearly"`
 	Enabled       bool    `json:"enabled"`
 	HasMysqlPass  bool    `json:"hasMysqlPassword"`
@@ -149,6 +156,7 @@ type databaseWrite struct {
 	RetainHourly  int     `json:"retainHourly"`
 	RetainDaily   int     `json:"retainDaily"`
 	RetainWeekly  int     `json:"retainWeekly"`
+	RetainMonthly int     `json:"retainMonthly"`
 	RetainYearly  int     `json:"retainYearly"`
 	Enabled       *bool   `json:"enabled"`
 }
@@ -160,8 +168,8 @@ func toFileDTO(f store.FileServer) fileServerDTO {
 		ScheduleCron: f.ScheduleCron, ScheduleStart: f.ScheduleStart,
 		RetainCount: f.RetainCount, RetainDays: f.RetainDays,
 		RetainHourly: f.RetainHourly, RetainDaily: f.RetainDaily,
-		RetainWeekly: f.RetainWeekly, RetainYearly: f.RetainYearly,
-		Enabled: f.Enabled, HasSecret: len(f.EncSecret) > 0, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
+		RetainWeekly: f.RetainWeekly, RetainMonthly: f.RetainMonthly, RetainYearly: f.RetainYearly,
+		IncrementalEnabled: f.IncrementalEnabled, Enabled: f.Enabled, HasSecret: len(f.EncSecret) > 0, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
 	}
 }
 
@@ -211,7 +219,7 @@ func toDBDTO(d store.Database) databaseDTO {
 		ScheduleCron: d.ScheduleCron, ScheduleStart: d.ScheduleStart,
 		RetainCount: d.RetainCount, RetainDays: d.RetainDays,
 		RetainHourly: d.RetainHourly, RetainDaily: d.RetainDaily,
-		RetainWeekly: d.RetainWeekly, RetainYearly: d.RetainYearly,
+		RetainWeekly: d.RetainWeekly, RetainMonthly: d.RetainMonthly, RetainYearly: d.RetainYearly,
 		Enabled: d.Enabled,
 		HasMysqlPass: len(d.EncMysqlPassword) > 0, HasSSHSecret: len(d.EncSSHSecret) > 0,
 	}
@@ -355,17 +363,25 @@ func (s *Server) buildFileServer(id string, req fileServerWrite, requireSecret b
 	if req.ScheduleCron == "" {
 		req.ScheduleCron = "0 2 * * *"
 	}
-	if req.RetainHourly == 0 && req.RetainDaily == 0 && req.RetainWeekly == 0 && req.RetainYearly == 0 {
+	if req.RetainHourly == 0 && req.RetainDaily == 0 && req.RetainWeekly == 0 && req.RetainMonthly == 0 && req.RetainYearly == 0 {
 		if req.RetainCount == 0 && req.RetainDays == 0 {
-			req.RetainHourly = 24
-			req.RetainDaily = 7
-			req.RetainWeekly = 4
+			req.RetainHourly = 1
+			req.RetainDaily = 1
+			req.RetainWeekly = 1
+			req.RetainMonthly = 1
 			req.RetainYearly = 1
 		}
 	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
+	}
+	incremental := true
+	if req.IncrementalEnabled != nil {
+		incremental = *req.IncrementalEnabled
+	}
+	if proto == "rsync" {
+		incremental = false
 	}
 	if id == "" {
 		id = uuid.NewString()
@@ -376,8 +392,8 @@ func (s *Server) buildFileServer(id string, req fileServerWrite, requireSecret b
 		ScheduleCron: req.ScheduleCron, ScheduleStart: req.ScheduleStart,
 		RetainCount: req.RetainCount, RetainDays: req.RetainDays,
 		RetainHourly: req.RetainHourly, RetainDaily: req.RetainDaily,
-		RetainWeekly: req.RetainWeekly, RetainYearly: req.RetainYearly,
-		Enabled: enabled,
+		RetainWeekly: req.RetainWeekly, RetainMonthly: req.RetainMonthly, RetainYearly: req.RetainYearly,
+		IncrementalEnabled: incremental, Enabled: enabled,
 	}
 	secret := remote.AuthSecret{
 		Password: req.Password, PrivateKey: req.PrivateKey, Passphrase: req.Passphrase, PublicKey: req.PublicKey,
@@ -687,11 +703,12 @@ func (s *Server) buildDatabase(id string, req databaseWrite, requireSecret bool)
 	if req.ScheduleCron == "" {
 		req.ScheduleCron = "0 2 * * *"
 	}
-	if req.RetainHourly == 0 && req.RetainDaily == 0 && req.RetainWeekly == 0 && req.RetainYearly == 0 {
+	if req.RetainHourly == 0 && req.RetainDaily == 0 && req.RetainWeekly == 0 && req.RetainMonthly == 0 && req.RetainYearly == 0 {
 		if req.RetainCount == 0 && req.RetainDays == 0 {
-			req.RetainHourly = 24
-			req.RetainDaily = 7
-			req.RetainWeekly = 4
+			req.RetainHourly = 1
+			req.RetainDaily = 1
+			req.RetainWeekly = 1
+			req.RetainMonthly = 1
 			req.RetainYearly = 1
 		}
 	}
@@ -714,7 +731,7 @@ func (s *Server) buildDatabase(id string, req databaseWrite, requireSecret bool)
 		SSHPort: req.SSHPort, ScheduleCron: req.ScheduleCron, ScheduleStart: req.ScheduleStart,
 		RetainCount: req.RetainCount, RetainDays: req.RetainDays,
 		RetainHourly: req.RetainHourly, RetainDaily: req.RetainDaily,
-		RetainWeekly: req.RetainWeekly, RetainYearly: req.RetainYearly,
+		RetainWeekly: req.RetainWeekly, RetainMonthly: req.RetainMonthly, RetainYearly: req.RetainYearly,
 		Enabled: enabled,
 	}
 	if req.FileServerID != nil && *req.FileServerID != "" {

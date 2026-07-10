@@ -80,6 +80,7 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	var total int64
 	files := 0
+	skipped := 0
 	var walkErr error
 
 	var walkDir func(full string)
@@ -145,12 +146,14 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 			rf, err := sc.Open(child)
 			if err != nil {
 				log(fmt.Sprintf("skip open %s: %v", rel, err))
+				skipped++
 				continue
 			}
 			n, err := io.Copy(tw, rf)
 			_ = rf.Close()
 			if err != nil {
 				log(fmt.Sprintf("skip copy %s: %v", rel, err))
+				skipped++
 				continue
 			}
 			total += n
@@ -206,6 +209,9 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	if walkErr != nil {
 		return nil, walkErr
+	}
+	if skipped > 0 {
+		return nil, fmt.Errorf("backup incomplete: %d file(s) skipped", skipped)
 	}
 
 	if err := tw.Close(); err != nil {
@@ -291,7 +297,10 @@ func commonParent(paths []string) string {
 }
 
 func dial(t remote.FileTarget) (*ssh.Client, error) {
-	return remote.DialSSH(t.Host, t.Port, t.Username, t.AuthMode, t.Secret)
+	return remote.DialSSH(t.Host, t.Port, t.Username, t.AuthMode, t.Secret, remote.HostKeyTrust{
+		KnownFingerprint: t.SSHHostKey,
+		Pin:              t.PinHostKey,
+	})
 }
 
 func relPath(root, full string) (string, error) {

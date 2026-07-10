@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/boomerang-backup/boomerang/internal/backup"
 )
 
 type Job struct {
@@ -126,14 +128,107 @@ func (s *Store) ListVersions(targetType, targetID string) ([]Version, error) {
 	return out, rows.Err()
 }
 
+// ErrVersionNotFound is returned when a backup version does not exist for the target.
+var ErrVersionNotFound = fmt.Errorf("version not found")
+
+// ErrVersionInUse is returned when a version cannot be deleted because newer incrementals depend on it.
+type ErrVersionInUse struct {
+	Count int
+}
+
+func (e ErrVersionInUse) Error() string {
+	if e.Count == 1 {
+		return "cannot delete: 1 newer incremental backup depends on this version — delete newer backups first"
+	}
+	return fmt.Sprintf("cannot delete: %d newer incremental backups depend on this version — delete newer backups first", e.Count)
+}
+
+// FileVersionsDependingOn lists succeeded versions whose incremental chain includes ancestorID.
+func (s *Store) FileVersionsDependingOn(targetID, ancestorID string) ([]Version, error) {
+	versions, err := s.ListVersions("file", targetID)
+	if err != nil {
+		return nil, err
+	}
+	var deps []Version
+	for _, v := range versions {
+		if v.ID == ancestorID || v.Status != "succeeded" {
+			continue
+		}
+		ok, err := s.fileVersionDependsOn(v, ancestorID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			deps = append(deps, v)
+		}
+	}
+	return deps, nil
+}
+
+func (s *Store) fileVersionDependsOn(v Version, ancestorID string) (bool, error) {
+	curID := v.ID
+	seen := map[string]bool{}
+	for curID != "" {
+		if seen[curID] {
+			return false, nil
+		}
+		seen[curID] = true
+		ver, err := s.GetVersion(curID)
+		if err != nil {
+			return false, err
+		}
+		if ver == nil {
+			return false, nil
+		}
+		m, err := backup.ReadFileManifest(ver.PathOnDisk)
+		if err != nil || m.BaseVersionID == "" {
+			return false, nil
+		}
+		if m.BaseVersionID == ancestorID {
+			return true, nil
+		}
+		curID = m.BaseVersionID
+	}
+	return false, nil
+}
+
+// DeleteVersion removes a single backup version and its files on disk.
+func (s *Store) DeleteVersion(targetType, targetID, versionID string) error {
+	v, err := s.GetVersion(versionID)
+	if err != nil {
+		return err
+	}
+	if v == nil || v.TargetType != targetType || v.TargetID != targetID {
+		return ErrVersionNotFound
+	}
+	if v.Status == "pending" || v.Status == "running" {
+		return fmt.Errorf("backup is still in progress")
+	}
+	if targetType == "file" {
+		deps, err := s.FileVersionsDependingOn(targetID, versionID)
+		if err != nil {
+			return err
+		}
+		if len(deps) > 0 {
+			return ErrVersionInUse{Count: len(deps)}
+		}
+	}
+	if v.PathOnDisk != "" {
+		_ = os.RemoveAll(v.PathOnDisk)
+	}
+	_, err = s.DB.Exec(`DELETE FROM backup_versions WHERE id=?`, versionID)
+	return err
+}
+
 // Retention is GFS-style (grandfather-father-son) plus optional legacy count/days.
 type Retention struct {
-	Hourly int
-	Daily  int
-	Weekly int
-	Yearly int
-	Count  int // legacy: keep last N
-	Days   int // legacy: keep within N days
+	Hourly  int
+	Daily   int
+	Weekly  int
+	Monthly int
+	Yearly  int
+	Count   int // legacy: keep last N
+	Days    int // legacy: keep within N days
 }
 
 func (s *Store) PruneVersions(targetType, targetID string, r Retention) error {
@@ -141,7 +236,7 @@ func (s *Store) PruneVersions(targetType, targetID string, r Retention) error {
 	if err != nil {
 		return err
 	}
-	gfs := r.Hourly > 0 || r.Daily > 0 || r.Weekly > 0 || r.Yearly > 0
+	gfs := r.Hourly > 0 || r.Daily > 0 || r.Weekly > 0 || r.Monthly > 0 || r.Yearly > 0
 	legacy := r.Count > 0 || r.Days > 0
 	if !gfs && !legacy {
 		return nil
@@ -174,6 +269,14 @@ func (s *Store) PruneVersions(targetType, targetID string, r Retention) error {
 				}
 			}
 		}
+	}
+
+	if targetType == "file" {
+		refs := make([]backup.VersionRef, 0, len(versions))
+		for _, v := range versions {
+			refs = append(refs, backup.VersionRef{ID: v.ID, PathOnDisk: v.PathOnDisk})
+		}
+		backup.ExpandIncrementalChain(refs, keep)
 	}
 
 	for _, v := range versions {
@@ -237,6 +340,7 @@ func gfsKeep(versions []Version, r Retention) map[string]bool {
 		y, w := t.ISOWeek()
 		return fmt.Sprintf("%d-W%02d", y, w)
 	})
+	keepBuckets(r.Monthly, func(t time.Time) string { return t.Format("2006-01") })
 	keepBuckets(r.Yearly, func(t time.Time) string { return t.Format("2006") })
 	return keep
 }
@@ -252,4 +356,39 @@ func parseVersionTime(s string) (time.Time, bool) {
 		return t, true
 	}
 	return time.Time{}, false
+}
+
+// PruneJobLogs removes job log lines older than keepDays.
+func (s *Store) PruneJobLogs(keepDays int) error {
+	if keepDays <= 0 {
+		return nil
+	}
+	cut := time.Now().UTC().AddDate(0, 0, -keepDays).Format(time.RFC3339)
+	_, err := s.DB.Exec(`
+		DELETE FROM job_logs WHERE job_id IN (
+			SELECT id FROM jobs WHERE COALESCE(finished_at, created_at) < ?
+		)`, cut)
+	return err
+}
+
+// CleanupStaleVersions removes failed/pending backup dirs left on disk.
+func (s *Store) CleanupStaleVersions() error {
+	rows, err := s.DB.Query(`SELECT id, path_on_disk, status FROM backup_versions WHERE status IN ('failed','pending')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, path, status string
+		if err := rows.Scan(&id, &path, &status); err != nil {
+			return err
+		}
+		if path != "" {
+			_ = os.RemoveAll(path)
+		}
+		if status == "pending" {
+			_, _ = s.DB.Exec(`DELETE FROM backup_versions WHERE id=?`, id)
+		}
+	}
+	return rows.Err()
 }
