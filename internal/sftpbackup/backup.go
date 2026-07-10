@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -80,7 +79,6 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	var total int64
 	files := 0
-	skipped := 0
 	var walkErr error
 
 	var walkDir func(full string)
@@ -135,28 +133,22 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 			manifest.Entries = append(manifest.Entries, entry)
 			hdr, err := tar.FileInfoHeader(fi, "")
 			if err != nil {
-				log(fmt.Sprintf("skip header %s: %v", rel, err))
-				continue
+				walkErr = fmt.Errorf("header %s: %w", rel, err)
+				return
 			}
 			hdr.Name = rel
-			if err := tw.WriteHeader(hdr); err != nil {
+			rf, err := sc.Open(child)
+			if err != nil {
+				walkErr = fmt.Errorf("open %s: %w", rel, err)
+				return
+			}
+			if err := archive.WriteTarFile(tw, hdr, rf); err != nil {
+				_ = rf.Close()
 				walkErr = err
 				return
 			}
-			rf, err := sc.Open(child)
-			if err != nil {
-				log(fmt.Sprintf("skip open %s: %v", rel, err))
-				skipped++
-				continue
-			}
-			n, err := io.Copy(tw, rf)
 			_ = rf.Close()
-			if err != nil {
-				log(fmt.Sprintf("skip copy %s: %v", rel, err))
-				skipped++
-				continue
-			}
-			total += n
+			total += fi.Size()
 			files++
 			if files%50 == 0 {
 				log(fmt.Sprintf("copied %d files…", files))
@@ -179,6 +171,9 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		}
 		if fi.IsDir() {
 			walkDir(root)
+			if walkErr != nil {
+				break
+			}
 		} else if fi.Mode().IsRegular() {
 			rel, _ := relPath(base, root)
 			if rel == "" {
@@ -195,23 +190,29 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 				continue
 			}
 			manifest.Entries = append(manifest.Entries, entry)
-			hdr, _ := tar.FileInfoHeader(fi, "")
-			hdr.Name = rel
-			_ = tw.WriteHeader(hdr)
-			rf, err := sc.Open(root)
-			if err == nil {
-				n, _ := io.Copy(tw, rf)
-				_ = rf.Close()
-				total += n
-				files++
+			hdr, err := tar.FileInfoHeader(fi, "")
+			if err != nil {
+				walkErr = fmt.Errorf("header %s: %w", rel, err)
+				break
 			}
+			hdr.Name = rel
+			rf, err := sc.Open(root)
+			if err != nil {
+				walkErr = fmt.Errorf("open %s: %w", rel, err)
+				break
+			}
+			if err := archive.WriteTarFile(tw, hdr, rf); err != nil {
+				_ = rf.Close()
+				walkErr = err
+				break
+			}
+			_ = rf.Close()
+			total += fi.Size()
+			files++
 		}
 	}
 	if walkErr != nil {
 		return nil, walkErr
-	}
-	if skipped > 0 {
-		return nil, fmt.Errorf("backup incomplete: %d file(s) skipped", skipped)
 	}
 
 	if err := tw.Close(); err != nil {

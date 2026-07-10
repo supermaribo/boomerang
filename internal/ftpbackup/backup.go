@@ -72,13 +72,16 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	var total int64
 	files := 0
-	skipped := 0
+	var walkErr error
 
 	var walkDir func(remotePath, relPrefix string)
 	walkDir = func(remotePath, relPrefix string) {
+		if walkErr != nil {
+			return
+		}
 		entries, err := c.List(remotePath)
 		if err != nil {
-			log(fmt.Sprintf("walk warn: %s: %v", remotePath, err))
+			walkErr = fmt.Errorf("list %s: %w", remotePath, err)
 			return
 		}
 		for _, e := range entries {
@@ -107,23 +110,18 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 			}
 			manifest.Entries = append(manifest.Entries, entry)
 			hdr := &tar.Header{Name: rel, Mode: 0o644, Size: int64(e.Size), ModTime: e.Time}
-			if err := tw.WriteHeader(hdr); err != nil {
-				return
-			}
 			r, err := c.Retr(child)
 			if err != nil {
-				log(fmt.Sprintf("skip %s: %v", rel, err))
-				skipped++
-				continue
+				walkErr = fmt.Errorf("retr %s: %w", rel, err)
+				return
 			}
-			n, err := io.Copy(tw, r)
+			if err := archive.WriteTarFile(tw, hdr, r); err != nil {
+				_ = r.Close()
+				walkErr = err
+				return
+			}
 			_ = r.Close()
-			if err != nil {
-				log(fmt.Sprintf("skip copy %s: %v", rel, err))
-				skipped++
-				continue
-			}
-			total += n
+			total += int64(e.Size)
 			files++
 		}
 	}
@@ -131,6 +129,13 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	for _, root := range roots {
 		log(fmt.Sprintf("backing up %s", root))
 		walkDir(root, strings.TrimPrefix(path.Clean(root), "/"))
+		if walkErr != nil {
+			break
+		}
+	}
+
+	if walkErr != nil {
+		return nil, walkErr
 	}
 
 	if err := tw.Close(); err != nil {
@@ -141,9 +146,6 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}
 	if err := f.Close(); err != nil {
 		return nil, err
-	}
-	if skipped > 0 {
-		return nil, fmt.Errorf("backup incomplete: %d file(s) skipped", skipped)
 	}
 	if err := backup.WriteFileManifest(outDir, &manifest); err != nil {
 		return nil, err

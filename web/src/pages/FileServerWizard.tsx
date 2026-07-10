@@ -534,10 +534,17 @@ export default function FileServerWizard() {
             {form.protocol === "rsync" ? (
               <p className="callout warn">
                 RSYNC always captures a <strong>full snapshot</strong> each run (not incremental on disk).
+                Best for large sites (Laravel, WordPress, etc.) with thousands of small files — much faster
+                than SFTP because rsync batches the transfer instead of opening each file individually.
               </p>
             ) : (
               <div className="wizard-section">
                 <h3 className="wizard-section-title">Backup mode</h3>
+                <p className="muted small">
+                  For PHP/Laravel sites with many small files, consider{" "}
+                  <strong>RSYNC over SSH</strong> on the connection step — it is usually much faster than
+                  SFTP.
+                </p>
                 <label className="check">
                   <input
                     type="checkbox"

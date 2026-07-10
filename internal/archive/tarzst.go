@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"archive/zip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,6 +22,21 @@ func FilesBlobPath(versionDir string) string {
 
 func SQLBlobPath(versionDir string) string {
 	return filepath.Join(versionDir, SQLArchive)
+}
+
+// WriteTarFile writes a regular-file tar entry, requiring exactly hdr.Size bytes.
+func WriteTarFile(tw *tar.Writer, hdr *tar.Header, r io.Reader) error {
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if hdr.Size == 0 {
+		return nil
+	}
+	n, err := io.CopyN(tw, r, hdr.Size)
+	if err != nil {
+		return fmt.Errorf("tar entry %q: wrote %d of %d bytes: %w", hdr.Name, n, hdr.Size, err)
+	}
+	return nil
 }
 
 func OpenZstd(box *crypto.Box, blobPath string) (io.ReadCloser, *zstd.Decoder, error) {
@@ -69,14 +85,11 @@ func TarDirectory(srcDir, outPath string) error {
 		if !fi.Mode().IsRegular() {
 			return nil
 		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
 		rf, err := os.Open(full)
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(tw, rf)
+		err = WriteTarFile(tw, hdr, rf)
 		_ = rf.Close()
 		return err
 	})
