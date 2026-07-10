@@ -83,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Get("/me", s.handleMe)
+			r.Get("/dashboard", s.handleDashboard)
 			r.Get("/target-health", s.handleTargetHealth)
 			s.routesTargets(r)
 			s.routesExtra(r)
