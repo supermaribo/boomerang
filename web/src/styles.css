@@ -402,6 +402,33 @@ body {
   max-width: 28rem;
 }
 
+.account-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.account-settings-card {
+  min-width: 0;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0d1211;
+}
+
+.account-settings-card .wizard-section-title {
+  margin-top: 0;
+}
+
+.account-card-lead {
+  margin: -0.35rem 0 0.85rem;
+}
+
+.account-settings-card .settings-form-actions {
+  margin-top: 0.25rem;
+}
+
 .settings-fieldset {
   border: 0;
   margin: 0 0 1.5rem;
@@ -1812,7 +1839,8 @@ button.crumb {
   .split,
   .row2,
   .split.explore,
-  .dash-recents {
+  .dash-recents,
+  .account-settings-grid {
     grid-template-columns: 1fr;
   }
 

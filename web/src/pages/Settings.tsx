@@ -253,89 +253,94 @@ export default function SettingsPage() {
                 <p className="muted">Password and how dates and backup schedules are shown.</p>
               </header>
 
-              <div className="settings-form narrow">
-                <h3 className="wizard-section-title">Timezone</h3>
-                <p className="muted small">
-                  Backup schedules run in this timezone. Timestamps in the UI use it too.
-                </p>
-                <label htmlFor="appliance-timezone">Timezone</label>
-                <select
-                  id="appliance-timezone"
-                  value={applianceTimezone}
-                  onChange={(e) => {
-                    setApplianceTimezone(e.target.value || "UTC");
-                    setCustomTimezone("");
-                  }}
-                >
-                  {timezoneOptions.map((z) => (
-                    <option key={z} value={z}>
-                      {timezoneLabel(z)}
-                    </option>
-                  ))}
-                  {!timezoneOptions.includes(applianceTimezone) && (
-                    <option value={applianceTimezone}>{timezoneLabel(applianceTimezone)}</option>
-                  )}
-                </select>
-                <label htmlFor="custom-timezone">Or IANA name</label>
-                <input
-                  id="custom-timezone"
-                  value={customTimezone}
-                  onChange={(e) => setCustomTimezone(e.target.value)}
-                  placeholder={guessBrowserTimezone()}
-                  list="tz-suggestions"
-                />
-                <datalist id="tz-suggestions">
-                  {timezoneOptions.map((z) => (
-                    <option key={z} value={z} />
-                  ))}
-                </datalist>
-                <div className="settings-form-actions">
-                  <button type="button" disabled={busy} onClick={() => void saveTimezone()}>
-                    Save timezone
-                  </button>
-                </div>
-              </div>
+              <div className="account-settings-grid">
+                <section className="account-settings-card">
+                  <h3 className="wizard-section-title">Timezone</h3>
+                  <p className="muted small account-card-lead">
+                    Backup schedules run in this timezone. Timestamps in the UI use it too.
+                  </p>
+                  <div className="settings-form">
+                    <label htmlFor="appliance-timezone">Timezone</label>
+                    <select
+                      id="appliance-timezone"
+                      value={applianceTimezone}
+                      onChange={(e) => {
+                        setApplianceTimezone(e.target.value || "UTC");
+                        setCustomTimezone("");
+                      }}
+                    >
+                      {timezoneOptions.map((z) => (
+                        <option key={z} value={z}>
+                          {timezoneLabel(z)}
+                        </option>
+                      ))}
+                      {!timezoneOptions.includes(applianceTimezone) && (
+                        <option value={applianceTimezone}>{timezoneLabel(applianceTimezone)}</option>
+                      )}
+                    </select>
+                    <label htmlFor="custom-timezone">Or IANA name</label>
+                    <input
+                      id="custom-timezone"
+                      value={customTimezone}
+                      onChange={(e) => setCustomTimezone(e.target.value)}
+                      placeholder={guessBrowserTimezone()}
+                      list="tz-suggestions"
+                    />
+                    <datalist id="tz-suggestions">
+                      {timezoneOptions.map((z) => (
+                        <option key={z} value={z} />
+                      ))}
+                    </datalist>
+                    <div className="settings-form-actions">
+                      <button type="button" disabled={busy} onClick={() => void saveTimezone()}>
+                        Save timezone
+                      </button>
+                    </div>
+                  </div>
+                </section>
 
-              <form className="settings-form narrow" onSubmit={changePassword}>
-                <h3 className="wizard-section-title">Password</h3>
-                <label>Current password</label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-                <div className="row2">
-                  <div>
-                    <label>New password</label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      required
-                      minLength={8}
-                      autoComplete="new-password"
-                    />
+                <form className="account-settings-card settings-form" onSubmit={changePassword}>
+                  <h3 className="wizard-section-title">Password</h3>
+                  <p className="muted small account-card-lead">Change the password used to sign in to this appliance.</p>
+                  <label>Current password</label>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                  />
+                  <div className="row2">
+                    <div>
+                      <label>New password</label>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <div>
+                      <label>Confirm</label>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label>Confirm</label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      required
-                      minLength={8}
-                      autoComplete="new-password"
-                    />
+                  <div className="settings-form-actions">
+                    <button type="submit" disabled={busy}>
+                      Update password
+                    </button>
                   </div>
-                </div>
-                <div className="settings-form-actions">
-                  <button type="submit" disabled={busy}>
-                    Update password
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
             </>
           )}
 
