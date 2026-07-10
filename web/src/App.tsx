@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Databases from "./pages/Databases";
+import DatabaseBackups from "./pages/DatabaseBackups";
 import DatabaseWizard from "./pages/DatabaseWizard";
 import ExploreBackups from "./pages/ExploreBackups";
 import FileServers from "./pages/FileServers";
@@ -93,6 +94,7 @@ export default function App() {
             <Route path="/app/file-servers/:id/backups" element={<ExploreBackups />} />
             <Route path="/app/databases" element={<Databases />} />
             <Route path="/app/databases/new" element={<DatabaseWizard />} />
+            <Route path="/app/databases/:id/backups" element={<DatabaseBackups />} />
             <Route path="/app/databases/:id/edit" element={<DatabaseWizard />} />
             <Route path="/app/settings" element={<SettingsPage />} />
           </>

@@ -135,7 +135,11 @@ export default function FileServers() {
             return (
               <li key={f.id}>
                 <div className="list-main">
-                  <strong>{f.name}</strong>
+                  <strong>
+                    <Link className="text-link" to={`/app/file-servers/${f.id}/backups`}>
+                      {f.name}
+                    </Link>
+                  </strong>
                   {health && <TargetHealthBadge health={health.health} detail={health.healthDetail} />}
                   {!f.enabled && <span className="badge">disabled</span>}
                   <span className="muted">
@@ -162,9 +166,6 @@ export default function FileServers() {
                   </div>
                 </div>
                 <div className="list-actions">
-                  <Link className="ghost btn-link" to={`/app/file-servers/${f.id}/backups`}>
-                    Explore
-                  </Link>
                   <button type="button" className="ghost" onClick={() => void backupNow(f.id)}>
                     Backup now
                   </button>

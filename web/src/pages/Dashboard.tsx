@@ -200,7 +200,7 @@ export default function Dashboard({ onLogout }: Props) {
             <p className="stat stat-compact">{data ? fmtBytes(data.storageBytes) : "—"}</p>
             {data?.storageForecast && data.storageForecast.dailyBytes > 0 && (
               <p className="muted small dash-meta">
-                ~{fmtBytes(data.storageForecast.projected30Day)} in 30 days at current rate
+                ~Est {fmtBytes(data.storageForecast.projected30Day)} in 30 days
               </p>
             )}
             <p className="muted small dash-meta">

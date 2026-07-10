@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/boomerang-backup/boomerang/internal/backup"
 	"github.com/boomerang-backup/boomerang/internal/filebackup"
 	"github.com/go-chi/chi/v5"
 )
@@ -19,8 +20,8 @@ func (s *Server) handleFileVersionTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := filebackup.IndexChain(s.store, vid, v.PathOnDisk); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		// Indexing can fail on very large manifests; browse may still work if partially indexed.
+		_ = err
 	}
 	chain, err := filebackup.VersionChain(s.store, vid, v.PathOnDisk)
 	if err != nil {
@@ -33,6 +34,20 @@ func (s *Server) handleFileVersionTree(w http.ResponseWriter, r *http.Request) {
 
 	prefix := strings.Trim(r.URL.Query().Get("path"), "/")
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	explicitPath := r.URL.Query().Has("path")
+
+	m, _ := backup.ReadFileManifest(v.PathOnDisk)
+	basePath := backup.DefaultBrowsePrefix(m)
+	remotePath := backup.RemoteBrowsePath(m)
+	kind := "full"
+	manifestRoot := ""
+	if m != nil {
+		manifestRoot = m.Root
+		kind = m.Kind
+	}
+	if !explicitPath && q == "" && prefix == "" && basePath != "" {
+		prefix = basePath
+	}
 
 	if q != "" {
 		hits, err := s.store.SearchManifestChain(chain, q, 500)
@@ -71,20 +86,15 @@ func (s *Server) handleFileVersionTree(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(list[i].Name) < strings.ToLower(list[j].Name)
 	})
 
-	m, _ := filebackup.LoadMergedManifest(s.store, "file", fsID, vid, v.PathOnDisk)
-	root := ""
-	kind := "full"
-	if m != nil {
-		root = m.Root
-		kind = m.Kind
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"mode":    "browse",
-		"path":    prefix,
-		"root":    root,
-		"kind":    kind,
-		"total":   total,
-		"entries": list,
+		"mode":       "browse",
+		"path":       prefix,
+		"basePath":   basePath,
+		"remotePath": remotePath,
+		"root":       manifestRoot,
+		"kind":       kind,
+		"total":      total,
+		"entries":    list,
 	})
 }
 

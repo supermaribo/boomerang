@@ -44,6 +44,8 @@ export default function ExploreBackups() {
   const [versions, setVersions] = useState<Version[]>([]);
   const [vid, setVid] = useState("");
   const [path, setPath] = useState("");
+  const [basePath, setBasePath] = useState("");
+  const [remotePath, setRemotePath] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState("");
@@ -53,6 +55,7 @@ export default function ExploreBackups() {
   const [showDelete, setShowDelete] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [panel, setPanel] = useState<"browse" | "log">("browse");
+  const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<{
     files: { path: string; size: number }[];
     totalFiles: number;
@@ -103,10 +106,16 @@ export default function ExploreBackups() {
       entries: Entry[];
       total?: number;
       path?: string;
+      basePath?: string;
+      remotePath?: string;
     }>(`/api/file-servers/${id}/versions/${versionId}/tree?${params}`);
     setEntries(data.entries || []);
     if (data.total) setTotal(data.total);
-    if (data.mode === "browse" && data.path !== undefined) setPath(data.path);
+    if (data.mode === "browse") {
+      if (data.basePath !== undefined) setBasePath(data.basePath);
+      if (data.remotePath) setRemotePath(data.remotePath);
+      if (data.path !== undefined) setPath(data.path);
+    }
   };
 
   useEffect(() => {
@@ -129,6 +138,8 @@ export default function ExploreBackups() {
     const v = versions.find((x) => x.id === versionId);
     setVid(versionId);
     setPath("");
+    setBasePath("");
+    setRemotePath("");
     setQ("");
     setSelected({});
     setShowDelete(false);
@@ -138,7 +149,17 @@ export default function ExploreBackups() {
     }
   };
 
-  const crumbs = path ? path.split("/") : [];
+  const relPath = useMemo(() => {
+    if (!path) return "";
+    if (basePath) {
+      if (path === basePath) return "";
+      if (path.startsWith(`${basePath}/`)) return path.slice(basePath.length + 1);
+    }
+    return path;
+  }, [path, basePath]);
+
+  const crumbs = relPath ? relPath.split("/") : [];
+  const rootLabel = remotePath || server?.remoteRoot || "root";
 
   const toggle = (p: string) => setSelected((s) => ({ ...s, [p]: !s[p] }));
 
@@ -146,6 +167,12 @@ export default function ExploreBackups() {
     setQ("");
     setPath(p);
     if (vid) void loadTree(vid, p, "").catch((e) => setError(String(e.message || e)));
+  };
+
+  const openCrumb = (idx: number) => {
+    const sub = crumbs.slice(0, idx + 1).join("/");
+    const full = basePath ? (sub ? `${basePath}/${sub}` : basePath) : sub;
+    openDir(full);
   };
 
   const search = async (e: FormEvent) => {
@@ -292,19 +319,22 @@ export default function ExploreBackups() {
   return (
     <div className="shell">
       <Nav />
-      <header className="page-head">
-        <h1>Explore backups</h1>
-        <p className="muted">
-          {server ? (
-            <>
-              {server.name} · <code>{server.remoteRoot}</code>
-            </>
-          ) : (
-            "…"
-          )}
-          {" · "}
-          <Link to="/app/file-servers">Back to file servers</Link>
-        </p>
+      <header className="page-head row-head">
+        <div>
+          <h1>Explore backups</h1>
+          <p className="muted">
+            {server ? (
+              <>
+                {server.name} · <code>{server.remoteRoot}</code>
+              </>
+            ) : (
+              "…"
+            )}
+          </p>
+        </div>
+        <Link className="ghost btn-link explore-back-btn" to="/app/file-servers">
+          Back to file servers
+        </Link>
       </header>
 
       <div className="err">{error}</div>
@@ -312,63 +342,71 @@ export default function ExploreBackups() {
 
       <section className="tile explore-main">
         <div className="backup-version-bar">
-          <div className="backup-version-pick">
-            <label htmlFor="backup-version">Backup</label>
-            {versions.length === 0 ? (
-              <p className="muted small">No backups yet.</p>
-            ) : (
+          {versions.length === 0 ? (
+            <p className="muted small">No backups yet.</p>
+          ) : (
+            <>
               <select
                 id="backup-version"
+                className="backup-version-select"
+                aria-label="Backup version"
                 value={vid}
                 onChange={(e) => selectVersion(e.target.value)}
               >
                 {versions.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {formatApplianceDateTime(v.createdAt, timezone)}{" "}
-                    · {v.status} · {fmtBytes(v.bytes)}
+                    {formatApplianceDateTime(v.createdAt, timezone)} · {v.status} ·{" "}
+                    {fmtBytes(v.bytes)}
                   </option>
                 ))}
               </select>
-            )}
-          </div>
-          {selectedVersion && (
-            <div className="backup-version-meta">
-              <span className={`pill ${selectedVersion.status}`}>{selectedVersion.status}</span>
-              <span className="muted small">{fmtBytes(selectedVersion.bytes)}</span>
-            </div>
+              {selectedVersion && (
+                <div className="backup-version-meta">
+                  <span className={`pill ${selectedVersion.status}`}>{selectedVersion.status}</span>
+                  <span className="muted small backup-version-size">
+                    {fmtBytes(selectedVersion.bytes)}
+                  </span>
+                </div>
+              )}
+              <div className="backup-version-actions">
+                <button
+                  type="button"
+                  className={`ghost${panel === "browse" ? " active" : ""}`}
+                  disabled={!vid || !canBrowse}
+                  onClick={() => setPanel("browse")}
+                >
+                  Browse
+                </button>
+                <button
+                  type="button"
+                  className={`ghost${panel === "log" ? " active" : ""}`}
+                  disabled={!vid}
+                  onClick={() => setPanel("log")}
+                >
+                  Log
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!vid || busy}
+                  onClick={() => void verify()}
+                >
+                  Verify
+                </button>
+                <button
+                  type="button"
+                  className="ghost danger-text"
+                  disabled={!vid || busy}
+                  onClick={() => {
+                    setShowDelete(true);
+                    setDeleteConfirm("");
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </>
           )}
-          <div className="backup-version-actions">
-            <button
-              type="button"
-              className={panel === "browse" ? "" : "ghost"}
-              disabled={!vid || !canBrowse}
-              onClick={() => setPanel("browse")}
-            >
-              Browse
-            </button>
-            <button
-              type="button"
-              className={panel === "log" ? "" : "ghost"}
-              disabled={!vid}
-              onClick={() => setPanel("log")}
-            >
-              Log
-            </button>
-            <button type="button" className="ghost" disabled={!vid || busy} onClick={() => void verify()}>
-              Verify
-            </button>
-            <button
-              type="button"
-              className="ghost danger-text"
-              disabled={!vid || busy}
-              onClick={() => {
-                setShowDelete(true);
-                setDeleteConfirm("");
-              }}
-            >
-              Delete
-            </button>
-          </div>
         </div>
 
         {showDelete && vid && (
@@ -419,15 +457,15 @@ export default function ExploreBackups() {
           <>
             <div className="explore-toolbar">
               <div className="crumbs">
-                <button type="button" className="ghost crumb" onClick={() => openDir("")}>
-                  root
+                <button type="button" className="ghost crumb" onClick={() => openDir(basePath)}>
+                  {rootLabel}
                 </button>
                 {crumbs.map((c, i) => {
                   const full = crumbs.slice(0, i + 1).join("/");
                   return (
                     <span key={full}>
                       <span className="muted"> / </span>
-                      <button type="button" className="ghost crumb" onClick={() => openDir(full)}>
+                      <button type="button" className="ghost crumb" onClick={() => openCrumb(i)}>
                         {c}
                       </button>
                     </span>
