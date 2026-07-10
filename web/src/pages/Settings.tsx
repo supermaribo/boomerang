@@ -1,0 +1,388 @@
+import { FormEvent, useEffect, useState } from "react";
+import { api } from "../App";
+import Nav from "../components/Nav";
+import DisasterRecovery from "../components/DisasterRecovery";
+
+type Settings = {
+  mailMode: "local" | "smtp";
+  notifyTo: string;
+  notifyFrom: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpFrom: string;
+  smtpTo: string;
+  hasSmtpPassword: boolean;
+  alertBackupSuccess: boolean;
+  alertBackupFailure: boolean;
+  alertRestoreSuccess: boolean;
+  alertRestoreFailure: boolean;
+};
+
+type Tab = "account" | "notifications" | "recovery";
+
+const TABS: { id: Tab; label: string; hint: string }[] = [
+  { id: "account", label: "Account", hint: "Login password" },
+  { id: "notifications", label: "Notifications", hint: "Email alerts" },
+  { id: "recovery", label: "Recovery", hint: "Protect this server" },
+];
+
+const ALERTS: {
+  key: keyof Pick<
+    Settings,
+    "alertBackupFailure" | "alertBackupSuccess" | "alertRestoreFailure" | "alertRestoreSuccess"
+  >;
+  label: string;
+  desc: string;
+}[] = [
+  { key: "alertBackupFailure", label: "Backup failed", desc: "When a scheduled or manual backup errors" },
+  { key: "alertBackupSuccess", label: "Backup succeeded", desc: "After each successful backup job" },
+  { key: "alertRestoreFailure", label: "Restore failed", desc: "When a restore job errors" },
+  { key: "alertRestoreSuccess", label: "Restore succeeded", desc: "After a restore completes" },
+];
+
+export default function SettingsPage() {
+  const [tab, setTab] = useState<Tab>("account");
+  const [form, setForm] = useState<Settings>({
+    mailMode: "local",
+    notifyTo: "",
+    notifyFrom: "",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpUser: "",
+    smtpFrom: "",
+    smtpTo: "",
+    hasSmtpPassword: false,
+    alertBackupSuccess: false,
+    alertBackupFailure: true,
+    alertRestoreSuccess: false,
+    alertRestoreFailure: true,
+  });
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<Settings>("/api/settings")
+      .then((s) =>
+        setForm({
+          mailMode: s.mailMode === "smtp" ? "smtp" : "local",
+          notifyTo: s.notifyTo || s.smtpTo || "",
+          notifyFrom: s.notifyFrom || "",
+          smtpHost: s.smtpHost || "",
+          smtpPort: s.smtpPort || 587,
+          smtpUser: s.smtpUser || "",
+          smtpFrom: s.smtpFrom || "",
+          smtpTo: s.smtpTo || "",
+          hasSmtpPassword: s.hasSmtpPassword,
+          alertBackupSuccess: s.alertBackupSuccess ?? false,
+          alertBackupFailure: s.alertBackupFailure ?? true,
+          alertRestoreSuccess: s.alertRestoreSuccess ?? false,
+          alertRestoreFailure: s.alertRestoreFailure ?? true,
+        }),
+      )
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load settings"));
+  }, []);
+
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const persistNotifications = async () => {
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ ...form, smtpPassword: smtpPassword || undefined }),
+    });
+    setSmtpPassword("");
+    const next = await api<Settings>("/api/settings");
+    setForm((f) => ({
+      ...f,
+      ...next,
+      mailMode: next.mailMode === "smtp" ? "smtp" : "local",
+      notifyTo: next.notifyTo || next.smtpTo || f.notifyTo,
+      hasSmtpPassword: next.hasSmtpPassword,
+    }));
+  };
+
+  const saveNotifications = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      await persistNotifications();
+      setInfo("Notification settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testEmail = async () => {
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      await persistNotifications();
+      await api("/api/settings/test-email", { method: "POST" });
+      setInfo("Test email sent — check your inbox.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Test email failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api("/api/settings/password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setInfo("Password updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Password change failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="shell">
+      <Nav />
+      <header className="page-head">
+        <h1>Settings</h1>
+        <p className="muted">Account security, alerts, and appliance recovery</p>
+      </header>
+
+      {(error || info) && (
+        <div className="settings-flash">
+          {error && <p className="err pad">{error}</p>}
+          {info && <p className="ok pad">{info}</p>}
+        </div>
+      )}
+
+      <div className="settings-layout">
+        <nav className="settings-tabs" aria-label="Settings sections">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={tab === t.id ? "settings-tab active" : "settings-tab"}
+              onClick={() => setTab(t.id)}
+            >
+              <span className="settings-tab-label">{t.label}</span>
+              <span className="settings-tab-hint">{t.hint}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-main tile">
+          {tab === "account" && (
+            <>
+              <header className="settings-panel-head">
+                <h2>Account</h2>
+                <p className="muted">Change the password used to sign in to Boomerang.</p>
+              </header>
+              <form className="settings-form narrow" onSubmit={changePassword}>
+                <label>Current password</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                />
+                <div className="row2">
+                  <div>
+                    <label>New password</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div>
+                    <label>Confirm</label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+                <div className="settings-form-actions">
+                  <button type="submit" disabled={busy}>
+                    Update password
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {tab === "notifications" && (
+            <>
+              <header className="settings-panel-head">
+                <h2>Email notifications</h2>
+                <p className="muted">Choose which job events send email and how mail is delivered.</p>
+              </header>
+              <form className="settings-form" onSubmit={saveNotifications}>
+                <fieldset className="settings-fieldset">
+                  <legend>Recipient</legend>
+                  <label>Notify address</label>
+                  <input
+                    type="email"
+                    value={form.notifyTo}
+                    onChange={(e) => set("notifyTo", e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                  />
+                </fieldset>
+
+                <fieldset className="settings-fieldset">
+                  <legend>Send an email when…</legend>
+                  <div className="alert-cards">
+                    {ALERTS.map((a) => (
+                      <label key={a.key} className="alert-card">
+                        <input
+                          type="checkbox"
+                          checked={form[a.key]}
+                          onChange={(e) => set(a.key, e.target.checked)}
+                        />
+                        <span className="alert-card-text">
+                          <strong>{a.label}</strong>
+                          <span className="muted small">{a.desc}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="settings-fieldset">
+                  <legend>Delivery</legend>
+                  <div className="segmented">
+                    <button
+                      type="button"
+                      className={form.mailMode === "local" ? "active" : ""}
+                      onClick={() => set("mailMode", "local")}
+                    >
+                      Local mail
+                    </button>
+                    <button
+                      type="button"
+                      className={form.mailMode === "smtp" ? "active" : ""}
+                      onClick={() => set("mailMode", "smtp")}
+                    >
+                      Custom SMTP
+                    </button>
+                  </div>
+
+                  {form.mailMode === "local" ? (
+                    <div className="delivery-panel">
+                      <p className="muted small">
+                        Uses this server&apos;s MTA (<code>sendmail</code> / port 25), like PHP{" "}
+                        <code>mail()</code>. Requires <code>postfix</code> on Debian installs.
+                      </p>
+                      <label>From address (optional)</label>
+                      <input
+                        value={form.notifyFrom}
+                        onChange={(e) => set("notifyFrom", e.target.value)}
+                        placeholder="boomerang@your-server"
+                      />
+                    </div>
+                  ) : (
+                    <div className="delivery-panel">
+                      <div className="row2">
+                        <div>
+                          <label>SMTP host</label>
+                          <input
+                            value={form.smtpHost}
+                            onChange={(e) => set("smtpHost", e.target.value)}
+                            placeholder="smtp.example.com"
+                          />
+                        </div>
+                        <div>
+                          <label>Port</label>
+                          <input
+                            type="number"
+                            value={form.smtpPort}
+                            onChange={(e) => set("smtpPort", Number(e.target.value))}
+                          />
+                        </div>
+                      </div>
+                      <div className="row2">
+                        <div>
+                          <label>Username</label>
+                          <input
+                            value={form.smtpUser}
+                            onChange={(e) => set("smtpUser", e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label>
+                            Password {form.hasSmtpPassword ? "(blank = keep)" : ""}
+                          </label>
+                          <input
+                            type="password"
+                            value={smtpPassword}
+                            onChange={(e) => setSmtpPassword(e.target.value)}
+                            autoComplete="new-password"
+                          />
+                        </div>
+                      </div>
+                      <label>From address</label>
+                      <input
+                        value={form.smtpFrom}
+                        onChange={(e) => set("smtpFrom", e.target.value)}
+                        placeholder="alerts@example.com"
+                      />
+                    </div>
+                  )}
+                </fieldset>
+
+                <div className="settings-form-actions">
+                  <button type="submit" disabled={busy}>
+                    Save notifications
+                  </button>
+                  <button type="button" className="ghost" disabled={busy} onClick={() => void testEmail()}>
+                    Send test email
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {tab === "recovery" && (
+            <>
+              <header className="settings-panel-head">
+                <h2>Disaster recovery</h2>
+              </header>
+              <DisasterRecovery embedded />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Boomerang backup appliance
+After=network.target
+
+[Service]
+Type=simple
+User=boomerang
+Group=boomerang
+Environment=BOOMERANG_DATA_DIR=/var/lib/boomerang
+Environment=BOOMERANG_LISTEN=0.0.0.0:8080
+ExecStart=/usr/local/bin/boomerang
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/boomerang
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
