@@ -72,13 +72,14 @@ func restoreSQL(box *crypto.Box, t Target, versionDir string, onlyTables []strin
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, mysqlBin,
-		"-h", host,
-		"-P", fmt.Sprintf("%d", port),
-		"-u", t.MysqlUser,
-		t.MysqlDB,
-	)
-	cmd.Env = append(os.Environ(), "MYSQL_PWD="+t.MysqlPass)
+
+	defaults, cleanupDefaults, err := defaultsExtraFile(host, port, t.MysqlUser, t.MysqlPass)
+	if err != nil {
+		return err
+	}
+	defer cleanupDefaults()
+
+	cmd := exec.CommandContext(ctx, mysqlBin, append([]string{defaults}, append(sslDisableArgs(mysqlBin), t.MysqlDB)...)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -143,7 +144,9 @@ func mysqlConn(t Target, log Logger) (host string, port int, cleanup func(), err
 		return host, port, cleanup, nil
 	}
 	log("opening SSH tunnel for MySQL restore")
-	tunnel, err := remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret)
+	tunnel, err := remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret, remote.HostKeyTrust{
+		KnownFingerprint: t.SSHHostKey,
+	})
 	if err != nil {
 		return "", 0, cleanup, fmt.Errorf("ssh tunnel: %w", err)
 	}

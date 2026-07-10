@@ -38,6 +38,8 @@ apt-get install -y -qq \
 
 echo "==> Creating boomerang system user and data directories"
 id -u boomerang >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin boomerang
+# Allow local mail via sendmail fallback (primary path uses SMTP to 127.0.0.1:25).
+getent group postdrop >/dev/null 2>&1 && usermod -aG postdrop boomerang 2>/dev/null || true
 install -d -m 700 -o boomerang -g boomerang \
   "$DATA_DIR" \
   "$DATA_DIR/secrets" \

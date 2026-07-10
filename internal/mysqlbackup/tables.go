@@ -25,15 +25,16 @@ func ListTables(t Target, log Logger) ([]string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, mysqlBin,
-		"-h", host,
-		"-P", fmt.Sprintf("%d", port),
-		"-u", t.MysqlUser,
-		"-N", "-B",
-		"-e", "SHOW TABLES",
-		t.MysqlDB,
-	)
-	cmd.Env = append(cmd.Environ(), "MYSQL_PWD="+t.MysqlPass)
+
+	defaults, cleanupDefaults, err := defaultsExtraFile(host, port, t.MysqlUser, t.MysqlPass)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupDefaults()
+
+	cmd := exec.CommandContext(ctx, mysqlBin, append([]string{
+		defaults,
+	}, append(sslDisableArgs(mysqlBin), "-N", "-B", "-e", "SHOW TABLES", t.MysqlDB)...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("list tables: %w (%s)", err, strings.TrimSpace(string(out)))

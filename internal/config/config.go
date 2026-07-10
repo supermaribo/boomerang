@@ -6,18 +6,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 )
 
 type Config struct {
-	DataDir    string
-	ListenAddr string
-	MasterKey  []byte
-	DBPath     string
+	DataDir           string
+	ListenAddr        string
+	MasterKey         []byte
+	DBPath            string
+	MaxConcurrentJobs int
 }
 
 func Load() (*Config, error) {
 	dataDir := envOr("BOOMERANG_DATA_DIR", "/var/lib/boomerang")
-	listen := envOr("BOOMERANG_LISTEN", "0.0.0.0:8080")
+	listen := envOr("BOOMERANG_LISTEN", "127.0.0.1:8080")
 
 	if err := os.MkdirAll(filepath.Join(dataDir, "secrets"), 0o700); err != nil {
 		return nil, fmt.Errorf("data dir: %w", err)
@@ -32,11 +35,35 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		DataDir:    dataDir,
-		ListenAddr: listen,
-		MasterKey:  key,
-		DBPath:     filepath.Join(dataDir, "app.db"),
+		DataDir:           dataDir,
+		ListenAddr:        listen,
+		MasterKey:         key,
+		DBPath:            filepath.Join(dataDir, "app.db"),
+		MaxConcurrentJobs: envIntOr("BOOMERANG_MAX_JOBS", defaultMaxJobs()),
 	}, nil
+}
+
+func defaultMaxJobs() int {
+	n := runtime.NumCPU() * 2
+	if n < 4 {
+		return 4
+	}
+	if n > 16 {
+		return 16
+	}
+	return n
+}
+
+func envIntOr(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return fallback
+	}
+	return n
 }
 
 func loadOrCreateMasterKey(dataDir string) ([]byte, error) {

@@ -24,7 +24,10 @@ func RestoreSelected(box *crypto.Box, target remote.FileTarget, versionDir strin
 		return 0, fmt.Errorf("no paths selected")
 	}
 
-	client, err := remote.DialSSH(target.Host, target.Port, target.Username, target.AuthMode, target.Secret)
+	client, err := remote.DialSSH(target.Host, target.Port, target.Username, target.AuthMode, target.Secret, remote.HostKeyTrust{
+		KnownFingerprint: target.SSHHostKey,
+		Pin:              target.PinHostKey,
+	})
 	if err != nil {
 		return 0, err
 	}

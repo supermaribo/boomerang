@@ -27,6 +27,8 @@ type FileTarget struct {
 	IncludePaths []string
 	AuthMode     string
 	Secret       AuthSecret
+	SSHHostKey   string
+	PinHostKey   func(fingerprint string) error
 }
 
 func TestFileTarget(t FileTarget) (string, error) {
@@ -41,7 +43,10 @@ func TestFileTarget(t FileTarget) (string, error) {
 }
 
 func testSSHList(t FileTarget) (string, error) {
-	client, err := DialSSH(t.Host, t.Port, t.Username, t.AuthMode, t.Secret)
+	client, err := DialSSH(t.Host, t.Port, t.Username, t.AuthMode, t.Secret, HostKeyTrust{
+		KnownFingerprint: t.SSHHostKey,
+		Pin:              t.PinHostKey,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -109,7 +114,7 @@ func testFTP(t FileTarget) (string, error) {
 	return fmt.Sprintf("FTP OK — logged in, path %s reachable", t.RemoteRoot), nil
 }
 
-func DialSSH(host string, port int, user, authMode string, secret AuthSecret) (*ssh.Client, error) {
+func DialSSH(host string, port int, user, authMode string, secret AuthSecret, trust HostKeyTrust) (*ssh.Client, error) {
 	var auth []ssh.AuthMethod
 	switch authMode {
 	case "password":
@@ -132,7 +137,7 @@ func DialSSH(host string, port int, user, authMode string, secret AuthSecret) (*
 	cfg := &ssh.ClientConfig{
 		User:            user,
 		Auth:            auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // lab appliance; document for production
+		HostKeyCallback: trust.callback(),
 		Timeout:         15 * time.Second,
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))

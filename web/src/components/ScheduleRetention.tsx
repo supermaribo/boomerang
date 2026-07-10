@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import {
   ScheduleState,
   buildCron,
   describeSchedule,
+  retentionTiersForFrequency,
   scheduleStartISO,
 } from "../lib/schedule";
 
@@ -9,6 +11,7 @@ type Retention = {
   retainHourly: number;
   retainDaily: number;
   retainWeekly: number;
+  retainMonthly: number;
   retainYearly: number;
 };
 
@@ -19,18 +22,53 @@ type Props = {
   onRetention: (k: keyof Retention, v: number) => void;
 };
 
+const TIER_LABELS: Record<keyof Retention, string> = {
+  retainHourly: "Hourly",
+  retainDaily: "Daily",
+  retainWeekly: "Weekly",
+  retainMonthly: "Monthly",
+  retainYearly: "Yearly",
+};
+
+const TIER_KEYS: Record<string, keyof Retention> = {
+  hourly: "retainHourly",
+  daily: "retainDaily",
+  weekly: "retainWeekly",
+  monthly: "retainMonthly",
+  yearly: "retainYearly",
+};
+
 export default function ScheduleRetention({
   schedule,
   onSchedule,
   retention,
   onRetention,
 }: Props) {
+  const tiers = retentionTiersForFrequency(schedule.frequency);
+
+  const clearHiddenRetention = (freq: ScheduleState["frequency"]) => {
+    const allowed = new Set(retentionTiersForFrequency(freq));
+    for (const [tier, key] of Object.entries(TIER_KEYS)) {
+      if (!allowed.has(tier as (typeof tiers)[number])) {
+        onRetention(key, 0);
+      }
+    }
+  };
+
+  useEffect(() => {
+    clearHiddenRetention(schedule.frequency);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedule.frequency]);
+
   const setSched = (patch: Partial<ScheduleState>) => {
     const next = { ...schedule, ...patch };
     if (patch.frequency && patch.frequency !== "custom") {
       next.customCron = buildCron(next);
     }
     onSchedule(next);
+    if (patch.frequency) {
+      clearHiddenRetention(patch.frequency);
+    }
   };
 
   const cron = buildCron(schedule);
@@ -118,54 +156,50 @@ export default function ScheduleRetention({
       <p className="muted small">
         Keep the newest backup in each period. Older versions outside these windows are removed
         after each successful backup.
+        {schedule.frequency === "weekly" && (
+          <> Hourly and daily retention are hidden because backups run weekly.</>
+        )}
+        {schedule.frequency === "daily" && (
+          <> Hourly retention is hidden because backups run once per day.</>
+        )}
       </p>
-      <div className="row4">
-        <div>
-          <label>Hourly</label>
-          <input
-            type="number"
-            min={0}
-            value={retention.retainHourly}
-            onChange={(e) => onRetention("retainHourly", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label>Daily</label>
-          <input
-            type="number"
-            min={0}
-            value={retention.retainDaily}
-            onChange={(e) => onRetention("retainDaily", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label>Weekly</label>
-          <input
-            type="number"
-            min={0}
-            value={retention.retainWeekly}
-            onChange={(e) => onRetention("retainWeekly", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label>Yearly</label>
-          <input
-            type="number"
-            min={0}
-            value={retention.retainYearly}
-            onChange={(e) => onRetention("retainYearly", Number(e.target.value))}
-          />
-        </div>
+      <div className="retain-grid">
+        {tiers.map((tier) => {
+          const key = TIER_KEYS[tier];
+          return (
+            <div key={tier}>
+              <label>{TIER_LABELS[key]}</label>
+              <input
+                type="number"
+                min={0}
+                value={retention[key]}
+                onChange={(e) => onRetention(key, Number(e.target.value))}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-export function retentionSummary(r: {
-  retainHourly?: number;
-  retainDaily?: number;
-  retainWeekly?: number;
-  retainYearly?: number;
-}) {
-  return `keep ${r.retainHourly ?? 0}h / ${r.retainDaily ?? 0}d / ${r.retainWeekly ?? 0}w / ${r.retainYearly ?? 0}y`;
+export function retentionSummary(
+  r: {
+    retainHourly?: number;
+    retainDaily?: number;
+    retainWeekly?: number;
+    retainMonthly?: number;
+    retainYearly?: number;
+  },
+  schedule?: ScheduleState,
+) {
+  const tiers = schedule ? retentionTiersForFrequency(schedule.frequency) : ["hourly", "daily", "weekly", "monthly", "yearly"];
+  const labels: Record<string, string> = {
+    hourly: `${r.retainHourly ?? 0}h`,
+    daily: `${r.retainDaily ?? 0}d`,
+    weekly: `${r.retainWeekly ?? 0}w`,
+    monthly: `${r.retainMonthly ?? 0}m`,
+    yearly: `${r.retainYearly ?? 0}y`,
+  };
+  return `keep ${tiers.map((t) => labels[t]).join(" / ")}`;
 }

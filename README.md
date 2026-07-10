@@ -131,8 +131,17 @@ Runs on **http://127.0.0.1:8080** with data in `./var/lib/boomerang` if you set 
 1. Open the UI and create the admin password (minimum 8 characters).
 2. **Settings → Notifications** — enter your email, choose which alerts to send, send a test email.
 3. Add a **file server** (SFTP/RSYNC/FTP) and/or **database** target.
-4. On remote hosts, allow **only this appliance’s IP** through the firewall (shown in the setup wizard).
+4. On remote hosts, allow **only this appliance’s IP** through the firewall (LAN and public IP shown in the setup wizard).
 5. Run **Backup now** and confirm a version appears.
+
+### Security — internal network only
+
+Boomerang is designed as a **private backup appliance**, not a public web app.
+
+- Run it on a **LAN, LXC, or VPN** — not directly on the open internet.
+- The UI listens on **HTTP port 8080** with **no TLS** and a **single shared password**.
+- Do **not** port-forward 8080 on your router or expose it via a public IP without a reverse proxy and proper auth.
+- Remote servers should allow backup traffic **only from Boomerang’s IP**, never from `0.0.0.0/0`.
 
 ---
 
@@ -153,8 +162,25 @@ Runs on **http://127.0.0.1:8080** with data in `./var/lib/boomerang` if you set 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BOOMERANG_DATA_DIR` | `/var/lib/boomerang` | SQLite DB, `secrets/`, `backups/` |
-| `BOOMERANG_LISTEN` | `0.0.0.0:8080` | HTTP listen address |
+| `BOOMERANG_LISTEN` | `127.0.0.1:8080` | HTTP listen address (use `0.0.0.0:8080` on a dedicated appliance; put TLS in front for remote access) |
 | `BOOMERANG_MASTER_KEY` | auto-generated | 64 hex chars (32 bytes). If set, used instead of `secrets/master.key` |
+| `BOOMERANG_MAX_JOBS` | `4`–`16` (CPU-based) | Max backups/restores running at once across different targets |
+
+---
+
+## TLS and reverse proxy
+
+Boomerang serves plain HTTP. For a dedicated appliance, `deploy/boomerang.service` sets `BOOMERANG_LISTEN=0.0.0.0:8080` on your LAN only.
+
+For HTTPS, put **nginx**, **Caddy**, or another reverse proxy in front and terminate TLS there. Example Caddy:
+
+```text
+boomerang.lan {
+  reverse_proxy 127.0.0.1:8080
+}
+```
+
+Do not expose the UI directly to the internet without TLS and network restrictions.
 
 ---
 
@@ -218,4 +244,8 @@ Do **not** open these ports to `0.0.0.0/0`. The setup wizards show this applianc
 
 ## License
 
-See repository license. Contributions welcome.
+[Boomerang](https://github.com/supermaribo/boomerang) is free and open source under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
+
+You may use and modify it at no cost. If you distribute or host a modified version, you must provide the corresponding source under the same license. Proprietary redistribution, relicensing, or selling copies without complying with AGPL-3.0 is not permitted.
+
+The full license text is in [`LICENSE`](LICENSE) and may be refined on GitHub. Contributions welcome.

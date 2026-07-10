@@ -6,16 +6,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/boomerang-backup/boomerang/internal/notify"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/robfig/cron/v3"
 )
 
 type Scheduler struct {
-	runner *Runner
-	store  *store.Store
-	cron   *cron.Cron
-	mu     sync.Mutex
-	ids    map[string]cron.EntryID // key: file:ID or db:ID
+	runner     *Runner
+	store      *store.Store
+	cron       *cron.Cron
+	mu         sync.Mutex
+	ids        map[string]cron.EntryID
+	notifyLoad func() (notify.MailConfig, error)
+	notifyName func(targetType, targetID string) string
 }
 
 func NewScheduler(r *Runner, st *store.Store) *Scheduler {
@@ -30,6 +33,7 @@ func NewScheduler(r *Runner, st *store.Store) *Scheduler {
 func (s *Scheduler) Start() {
 	s.Reload()
 	s.cron.Start()
+	s.startMissedLoop()
 	log.Printf("scheduler started")
 }
 

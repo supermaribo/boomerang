@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/notify"
+	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,6 +32,7 @@ func (s *Server) routesExtra(r chi.Router) {
 	r.Post("/databases/{id}/versions/{vid}/restore", s.handleRestoreDatabase)
 	r.Get("/databases/{id}/versions/{vid}", s.handleGetDBVersion)
 	r.Get("/databases/{id}/versions/{vid}/tables", s.handleDBVersionTables)
+	r.Delete("/databases/{id}/versions/{vid}", s.handleDeleteDBVersion)
 }
 
 func (s *Server) handleRecentBackups(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +207,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = s.store.BumpSessionEpoch()
 	_ = s.store.Audit("password_change", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -355,4 +359,33 @@ func (s *Server) handleRestoreDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.store.Audit("db_restore", dbID+":"+vid)
 	writeJSON(w, http.StatusAccepted, map[string]string{"jobId": jobID})
+}
+
+func (s *Server) handleDeleteDBVersion(w http.ResponseWriter, r *http.Request) {
+	dbID := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	db, err := s.store.GetDatabase(dbID)
+	if err != nil || db == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	var req deleteVersionReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.ConfirmName != db.Name {
+		writeErr(w, http.StatusBadRequest, "type the database name to confirm delete")
+		return
+	}
+	if err := s.store.DeleteVersion("db", dbID, vid); err != nil {
+		if errors.Is(err, store.ErrVersionNotFound) {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = s.store.Audit("db_version_delete", dbID+":"+vid)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
