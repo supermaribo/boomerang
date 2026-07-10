@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
@@ -39,6 +40,7 @@ function pathSummary(f: FileServer) {
 }
 
 export default function FileServers() {
+  const { timezone } = useTimezone();
   const [list, setList] = useState<FileServer[]>([]);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -104,7 +106,7 @@ export default function FileServers() {
         )}
         <ul className="list list-stack">
           {list.map((f) => {
-            const sched = parseSchedule(f.scheduleCron, f.scheduleStart || "");
+            const sched = parseSchedule(f.scheduleCron, f.scheduleStart || "", timezone);
             return (
               <li key={f.id}>
                 <div className="list-main">

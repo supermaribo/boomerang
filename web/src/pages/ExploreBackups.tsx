@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
+import { formatApplianceDateTime } from "../lib/formatTime";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
@@ -34,6 +36,7 @@ function fmtBytes(n: number) {
 }
 
 export default function ExploreBackups() {
+  const { timezone } = useTimezone();
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -293,9 +296,7 @@ export default function ExploreBackups() {
               >
                 {versions.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {new Date(
-                      v.createdAt + (v.createdAt.includes("T") ? "" : "Z"),
-                    ).toLocaleString()}{" "}
+                    {formatApplianceDateTime(v.createdAt, timezone)}{" "}
                     · {v.status} · {fmtBytes(v.bytes)}
                   </option>
                 ))}

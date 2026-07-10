@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
+import { formatApplianceDateTime } from "../lib/formatTime";
 
 export type OffsiteSettings = {
   enabled: boolean;
@@ -29,6 +31,7 @@ type Props = {
 };
 
 export default function OffsiteSettingsPanel({ onFlash, busy, setBusy }: Props) {
+  const { timezone } = useTimezone();
   const [form, setForm] = useState<OffsiteSettings>({
     enabled: false,
     accountId: "",
@@ -169,7 +172,7 @@ export default function OffsiteSettingsPanel({ onFlash, busy, setBusy }: Props) 
           <div className="settings-block">
             <h3>Last mirror</h3>
             <p className="muted small">
-              {new Date(form.lastSync + (form.lastSync.includes("T") ? "" : "Z")).toLocaleString()}
+              {formatApplianceDateTime(form.lastSync, timezone)}
               {form.syncing ? " · syncing now…" : ""}
             </p>
             <p className="muted small">

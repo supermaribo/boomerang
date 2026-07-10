@@ -1,6 +1,7 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
@@ -62,6 +63,7 @@ function fmtBytes(n: number) {
 }
 
 export default function Databases() {
+  const { timezone } = useTimezone();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [list, setList] = useState<Database[]>([]);
@@ -317,7 +319,7 @@ export default function Databases() {
         )}
         <ul className="list list-stack">
           {list.map((d) => {
-            const sched = parseSchedule(d.scheduleCron, d.scheduleStart || "");
+            const sched = parseSchedule(d.scheduleCron, d.scheduleStart || "", timezone);
             return (
               <li key={d.id} id={`db-${d.id}`}>
                 <div className="list-main">

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
+import { formatApplianceDate, formatApplianceTime } from "../lib/formatTime";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 
@@ -47,17 +49,15 @@ function parseWhen(s: string) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function fmtDate(s: string) {
-  const d = parseWhen(s);
-  return d ? d.toLocaleDateString() : s;
+function fmtDate(s: string, timeZone: string) {
+  return formatApplianceDate(s, timeZone);
 }
 
-function fmtTime(s: string) {
-  const d = parseWhen(s);
-  return d ? d.toLocaleTimeString() : "";
+function fmtTime(s: string, timeZone: string) {
+  return formatApplianceTime(s, timeZone);
 }
 
-function RecentBackupList({ rows }: { rows: RecentRow[] }) {
+function RecentBackupList({ rows, timeZone }: { rows: RecentRow[]; timeZone: string }) {
   if (rows.length === 0) {
     return <p className="muted">No backups yet.</p>;
   }
@@ -71,7 +71,7 @@ function RecentBackupList({ rows }: { rows: RecentRow[] }) {
               <span className={`pill ${b.status}`}>{b.status}</span>
             </div>
             <p className="muted small dash-backup-meta">
-              {fmtBytes(b.bytes)} · {fmtDate(b.createdAt)} · {fmtTime(b.createdAt)}
+              {fmtBytes(b.bytes)} · {fmtDate(b.createdAt, timeZone)} · {fmtTime(b.createdAt, timeZone)}
             </p>
           </div>
           {b.exploreUrl ? (
@@ -114,6 +114,7 @@ function ApplianceStatus({ items }: { items: StatusItem[] }) {
 }
 
 export default function Dashboard({ onLogout }: Props) {
+  const { timezone } = useTimezone();
   const [data, setData] = useState<Dash | null>(null);
   const [fileBackups, setFileBackups] = useState<RecentRow[]>([]);
   const [dbBackups, setDbBackups] = useState<RecentRow[]>([]);
@@ -184,7 +185,7 @@ export default function Dashboard({ onLogout }: Props) {
               All file servers →
             </Link>
           </div>
-          <RecentBackupList rows={fileBackups} />
+          <RecentBackupList rows={fileBackups} timeZone={timezone} />
         </section>
 
         <section className="tile dash-section">
@@ -194,7 +195,7 @@ export default function Dashboard({ onLogout }: Props) {
               All databases →
             </Link>
           </div>
-          <RecentBackupList rows={dbBackups} />
+          <RecentBackupList rows={dbBackups} timeZone={timezone} />
         </section>
       </div>
 

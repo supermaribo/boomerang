@@ -8,6 +8,7 @@ import (
 
 	"github.com/boomerang-backup/boomerang/internal/notify"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/tzutil"
 	"github.com/robfig/cron/v3"
 )
 
@@ -16,6 +17,7 @@ type Scheduler struct {
 	store      *store.Store
 	cron       *cron.Cron
 	mu         sync.Mutex
+	running    bool
 	ids        map[string]cron.EntryID
 	notifyLoad func() (notify.MailConfig, error)
 	notifyName func(targetType, targetID string) string
@@ -31,10 +33,13 @@ func NewScheduler(r *Runner, st *store.Store) *Scheduler {
 }
 
 func (s *Scheduler) Start() {
+	s.mu.Lock()
+	s.running = true
+	s.mu.Unlock()
 	s.Reload()
 	s.cron.Start()
 	s.startMissedLoop()
-	log.Printf("scheduler started")
+	log.Printf("scheduler started (timezone %s)", tzutil.Name(s.store))
 }
 
 func (s *Scheduler) Stop() {
@@ -45,10 +50,16 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) Reload() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, id := range s.ids {
-		s.cron.Remove(id)
+	if s.cron != nil && s.running {
+		ctx := s.cron.Stop()
+		<-ctx.Done()
 	}
 	s.ids = map[string]cron.EntryID{}
+	loc := tzutil.Load(s.store)
+	s.cron = cron.New(cron.WithLocation(loc))
+	if s.running {
+		s.cron.Start()
+	}
 
 	files, err := s.store.ListFileServers()
 	if err == nil {

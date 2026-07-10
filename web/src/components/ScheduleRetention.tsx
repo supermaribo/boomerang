@@ -20,6 +20,7 @@ type Props = {
   onSchedule: (s: ScheduleState) => void;
   retention: Retention;
   onRetention: (k: keyof Retention, v: number) => void;
+  timeZone?: string;
 };
 
 const TIER_LABELS: Record<keyof Retention, string> = {
@@ -43,6 +44,7 @@ export default function ScheduleRetention({
   onSchedule,
   retention,
   onRetention,
+  timeZone = "UTC",
 }: Props) {
   const tiers = retentionTiersForFrequency(schedule.frequency);
 
@@ -93,13 +95,13 @@ export default function ScheduleRetention({
         <option value="custom">Custom cron</option>
       </select>
       <p className="muted small">
-        New backups pick a random time between 23:00 and 06:00 UTC so jobs don&apos;t all run at
-        once. You can change it below.
+        New backups pick a random time between 23:00 and 06:00 ({timeZone}) so jobs don&apos;t all
+        run at once. You can change it below.
       </p>
 
       <div className="row2">
         <div>
-          <label>Start time (UTC)</label>
+          <label>Start time ({timeZone})</label>
           <input
             type="time"
             value={schedule.startTime}
@@ -150,7 +152,7 @@ export default function ScheduleRetention({
           {schedule.startDate ? (
             <>
               {" "}
-              · first eligible <code>{scheduleStartISO(schedule)}</code>
+              · first eligible <code>{scheduleStartISO(schedule, timeZone)}</code>
             </>
           ) : null}
         </p>

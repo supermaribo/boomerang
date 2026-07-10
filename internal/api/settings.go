@@ -12,6 +12,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/notify"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/tzutil"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -28,6 +29,8 @@ func (s *Server) routesExtra(r chi.Router) {
 	r.Put("/offsite", s.handlePutOffsite)
 	r.Post("/offsite/test", s.handleTestOffsite)
 	r.Post("/offsite/sync", s.handleSyncOffsite)
+	r.Get("/settings/timezones", s.handleListTimezones)
+	r.Put("/settings/timezone", s.handlePutTimezone)
 	r.Get("/databases/{id}/versions/{vid}/logs", s.handleDBVersionLogs)
 	r.Post("/databases/{id}/versions/{vid}/restore", s.handleRestoreDatabase)
 	r.Get("/databases/{id}/versions/{vid}", s.handleGetDBVersion)
@@ -104,6 +107,7 @@ type settingsDTO struct {
 	AlertBackupFailure  bool   `json:"alertBackupFailure"`
 	AlertRestoreSuccess bool   `json:"alertRestoreSuccess"`
 	AlertRestoreFailure bool   `json:"alertRestoreFailure"`
+	Timezone            string `json:"timezone"`
 }
 
 func (s *Server) LoadMail() (notify.MailConfig, error) {
@@ -233,7 +237,9 @@ func settingsToDTO(cfg notify.MailConfig) settingsDTO {
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 	cfg, _ := s.loadMail()
-	writeJSON(w, http.StatusOK, settingsToDTO(cfg))
+	dto := settingsToDTO(cfg)
+	dto.Timezone = tzutil.Name(s.store)
+	writeJSON(w, http.StatusOK, dto)
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {

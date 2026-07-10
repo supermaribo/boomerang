@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
+import { guessBrowserTimezone, timezoneLabel } from "../lib/formatTime";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import DisasterRecovery from "../components/DisasterRecovery";
@@ -19,6 +21,7 @@ type Settings = {
   alertBackupFailure: boolean;
   alertRestoreSuccess: boolean;
   alertRestoreFailure: boolean;
+  timezone?: string;
 };
 
 type Tab = "account" | "notifications" | "offsite" | "recovery";
@@ -45,6 +48,7 @@ const ALERTS: {
 ];
 
 export default function SettingsPage() {
+  const { timezone, setTimezone: setGlobalTimezone, refreshTimezone } = useTimezone();
   const [tab, setTab] = useState<Tab>("account");
 
   useEffect(() => {
@@ -76,6 +80,22 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [applianceTimezone, setApplianceTimezone] = useState("UTC");
+  const [timezoneOptions, setTimezoneOptions] = useState<string[]>(["UTC"]);
+  const [customTimezone, setCustomTimezone] = useState("");
+
+  useEffect(() => {
+    api<{ timezone: string; common: string[] }>("/api/settings/timezones")
+      .then((d) => {
+        setTimezoneOptions(d.common?.length ? d.common : ["UTC"]);
+        if (d.timezone) setApplianceTimezone(d.timezone);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    setApplianceTimezone(timezone);
+  }, [timezone]);
 
   useEffect(() => {
     api<Settings>("/api/settings")
@@ -98,6 +118,28 @@ export default function SettingsPage() {
       )
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load settings"));
   }, []);
+
+  const saveTimezone = async () => {
+    const tz = customTimezone.trim() || applianceTimezone;
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      const res = await api<{ timezone: string }>("/api/settings/timezone", {
+        method: "PUT",
+        body: JSON.stringify({ timezone: tz }),
+      });
+      setApplianceTimezone(res.timezone);
+      setCustomTimezone("");
+      setGlobalTimezone(res.timezone);
+      await refreshTimezone();
+      setInfo(`Timezone set to ${res.timezone}. Backup schedules use this zone.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save timezone");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -208,9 +250,54 @@ export default function SettingsPage() {
             <>
               <header className="settings-panel-head">
                 <h2>Account</h2>
-                <p className="muted">Change the password used to sign in to Boomerang.</p>
+                <p className="muted">Password and how dates and backup schedules are shown.</p>
               </header>
+
+              <div className="settings-form narrow">
+                <h3 className="wizard-section-title">Timezone</h3>
+                <p className="muted small">
+                  Backup schedules run in this timezone. Timestamps in the UI use it too.
+                </p>
+                <label htmlFor="appliance-timezone">Timezone</label>
+                <select
+                  id="appliance-timezone"
+                  value={applianceTimezone}
+                  onChange={(e) => {
+                    setApplianceTimezone(e.target.value || "UTC");
+                    setCustomTimezone("");
+                  }}
+                >
+                  {timezoneOptions.map((z) => (
+                    <option key={z} value={z}>
+                      {timezoneLabel(z)}
+                    </option>
+                  ))}
+                  {!timezoneOptions.includes(applianceTimezone) && (
+                    <option value={applianceTimezone}>{timezoneLabel(applianceTimezone)}</option>
+                  )}
+                </select>
+                <label htmlFor="custom-timezone">Or IANA name</label>
+                <input
+                  id="custom-timezone"
+                  value={customTimezone}
+                  onChange={(e) => setCustomTimezone(e.target.value)}
+                  placeholder={guessBrowserTimezone()}
+                  list="tz-suggestions"
+                />
+                <datalist id="tz-suggestions">
+                  {timezoneOptions.map((z) => (
+                    <option key={z} value={z} />
+                  ))}
+                </datalist>
+                <div className="settings-form-actions">
+                  <button type="button" disabled={busy} onClick={() => void saveTimezone()}>
+                    Save timezone
+                  </button>
+                </div>
+              </div>
+
               <form className="settings-form narrow" onSubmit={changePassword}>
+                <h3 className="wizard-section-title">Password</h3>
                 <label>Current password</label>
                 <input
                   type="password"

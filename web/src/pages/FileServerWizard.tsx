@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import FirewallReminder from "../components/FirewallReminder";
@@ -56,12 +57,13 @@ const emptyForm = {
 };
 
 export default function FileServerWizard() {
+  const { timezone } = useTimezone();
   const { id } = useParams();
   const editing = Boolean(id);
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(emptyForm);
-  const [schedule, setSchedule] = useState<ScheduleState>(() => randomNightSchedule());
+  const [schedule, setSchedule] = useState<ScheduleState>(() => randomNightSchedule(timezone));
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -100,7 +102,7 @@ export default function FileServerWizard() {
         setSelected(
           f.includePaths?.length ? f.includePaths : f.remoteRoot ? [f.remoteRoot] : [],
         );
-        setSchedule(parseSchedule(f.scheduleCron, f.scheduleStart || ""));
+        setSchedule(parseSchedule(f.scheduleCron, f.scheduleStart || "", timezone));
         setLoaded(true);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "load failed"));
@@ -271,7 +273,7 @@ export default function FileServerWizard() {
         ...form,
         ...resolvedPaths,
         scheduleCron: buildCron(schedule),
-        scheduleStart: scheduleStartISO(schedule),
+        scheduleStart: scheduleStartISO(schedule, timezone),
         retainCount: 0,
         retainDays: 0,
       };
@@ -566,17 +568,18 @@ export default function FileServerWizard() {
             <div className="wizard-section">
               <h3 className="wizard-section-title">Schedule & retention</h3>
               <ScheduleRetention
-            schedule={schedule}
-            onSchedule={setSchedule}
-            retention={{
-              retainHourly: form.retainHourly,
-              retainDaily: form.retainDaily,
-              retainWeekly: form.retainWeekly,
-              retainMonthly: form.retainMonthly,
-              retainYearly: form.retainYearly,
-            }}
-            onRetention={(k, v) => set(k, v)}
-          />
+                schedule={schedule}
+                onSchedule={setSchedule}
+                timeZone={timezone}
+                retention={{
+                  retainHourly: form.retainHourly,
+                  retainDaily: form.retainDaily,
+                  retainWeekly: form.retainWeekly,
+                  retainMonthly: form.retainMonthly,
+                  retainYearly: form.retainYearly,
+                }}
+                onRetention={(k, v) => set(k, v)}
+              />
             </div>
           </>
         )}

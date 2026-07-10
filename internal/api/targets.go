@@ -12,6 +12,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/remote"
 	"github.com/boomerang-backup/boomerang/internal/schedule"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/tzutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -363,7 +364,7 @@ func (s *Server) buildFileServer(id string, req fileServerWrite, requireSecret b
 		req.ExcludePaths = []string{}
 	}
 	if req.ScheduleCron == "" {
-		cron, start := schedule.RandomNight()
+		cron, start := schedule.RandomNight(tzutil.Load(s.store))
 		req.ScheduleCron = cron
 		if strings.TrimSpace(req.ScheduleStart) == "" {
 			req.ScheduleStart = start
@@ -707,7 +708,7 @@ func (s *Server) buildDatabase(id string, req databaseWrite, requireSecret bool)
 		auth = "password"
 	}
 	if req.ScheduleCron == "" {
-		cron, start := schedule.RandomNight()
+		cron, start := schedule.RandomNight(tzutil.Load(s.store))
 		req.ScheduleCron = cron
 		if strings.TrimSpace(req.ScheduleStart) == "" {
 			req.ScheduleStart = start

@@ -8,6 +8,7 @@ import FileServers from "./pages/FileServers";
 import FileServerWizard from "./pages/FileServerWizard";
 import Gate from "./pages/Gate";
 import SettingsPage from "./pages/Settings";
+import { TimezoneProvider } from "./context/Timezone";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -61,43 +62,45 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          setupRequired || !authed ? (
-            <Gate setupRequired={setupRequired} onDone={async () => { await refresh(); }} />
-          ) : (
-            <Navigate to="/app" replace />
-          )
-        }
-      />
-      {authed ? (
-        <>
-          <Route
-            path="/app"
-            element={
-              <Dashboard
-                onLogout={async () => {
-                  await api("/api/logout", { method: "POST" });
-                  await refresh();
-                }}
-              />
-            }
-          />
-          <Route path="/app/file-servers" element={<FileServers />} />
-          <Route path="/app/file-servers/new" element={<FileServerWizard />} />
-          <Route path="/app/file-servers/:id/edit" element={<FileServerWizard />} />
-          <Route path="/app/file-servers/:id/backups" element={<ExploreBackups />} />
-          <Route path="/app/databases" element={<Databases />} />
-          <Route path="/app/databases/new" element={<DatabaseWizard />} />
-          <Route path="/app/databases/:id/edit" element={<DatabaseWizard />} />
-          <Route path="/app/settings" element={<SettingsPage />} />
-        </>
-      ) : (
-        <Route path="/app/*" element={<Navigate to="/" replace />} />
-      )}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <TimezoneProvider>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            setupRequired || !authed ? (
+              <Gate setupRequired={setupRequired} onDone={async () => { await refresh(); }} />
+            ) : (
+              <Navigate to="/app" replace />
+            )
+          }
+        />
+        {authed ? (
+          <>
+            <Route
+              path="/app"
+              element={
+                <Dashboard
+                  onLogout={async () => {
+                    await api("/api/logout", { method: "POST" });
+                    await refresh();
+                  }}
+                />
+              }
+            />
+            <Route path="/app/file-servers" element={<FileServers />} />
+            <Route path="/app/file-servers/new" element={<FileServerWizard />} />
+            <Route path="/app/file-servers/:id/edit" element={<FileServerWizard />} />
+            <Route path="/app/file-servers/:id/backups" element={<ExploreBackups />} />
+            <Route path="/app/databases" element={<Databases />} />
+            <Route path="/app/databases/new" element={<DatabaseWizard />} />
+            <Route path="/app/databases/:id/edit" element={<DatabaseWizard />} />
+            <Route path="/app/settings" element={<SettingsPage />} />
+          </>
+        ) : (
+          <Route path="/app/*" element={<Navigate to="/" replace />} />
+        )}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </TimezoneProvider>
   );
 }

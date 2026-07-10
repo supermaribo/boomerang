@@ -3,12 +3,13 @@ package schedule
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRandomNight(t *testing.T) {
 	seen := make(map[int]bool)
 	for i := 0; i < 200; i++ {
-		cron, start := RandomNight()
+		cron, start := RandomNight(time.UTC)
 		parts := strings.Fields(cron)
 		if len(parts) != 5 || parts[2] != "*" || parts[3] != "*" || parts[4] != "*" {
 			t.Fatalf("unexpected cron %q", cron)

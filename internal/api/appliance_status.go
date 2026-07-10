@@ -9,6 +9,8 @@ import (
 
 	"github.com/boomerang-backup/boomerang/internal/hoststats"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
+	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/tzutil"
 )
 
 type statusItem struct {
@@ -97,7 +99,7 @@ func (s *Server) applianceStatus() []statusItem {
 		} else if st.LastError != "" {
 			detail = st.LastError
 		} else if st.LastSync != "" {
-			detail = "Last mirror " + formatStatusTime(st.LastSync)
+			detail = "Last mirror " + formatStatusTime(s.store, st.LastSync)
 		} else {
 			detail = "No mirror yet"
 			offOK = false
@@ -130,11 +132,11 @@ func fmtBytes(n uint64) string {
 	return fmt.Sprintf("%.2f GB", float64(n)/(1024*1024*1024))
 }
 
-func formatStatusTime(raw string) string {
+func formatStatusTime(st *store.Store, raw string) string {
 	layouts := []string{time.RFC3339, "2006-01-02T15:04:05Z"}
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, raw); err == nil {
-			return t.Local().Format("2 Jan 2006, 15:04")
+			return tzutil.Format(st, t)
 		}
 	}
 	return raw

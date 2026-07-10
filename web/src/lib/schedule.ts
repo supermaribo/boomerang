@@ -10,28 +10,28 @@ export type ScheduleFrequency =
 
 export type ScheduleState = {
   frequency: ScheduleFrequency;
-  startTime: string; // HH:MM
-  startDate: string; // YYYY-MM-DD
+  startTime: string; // HH:MM in appliance timezone
+  startDate: string; // YYYY-MM-DD in appliance timezone
   weekday: number; // 0=Sun … 6=Sat
   customCron: string;
 };
 
-export const defaultSchedule = (): ScheduleState => ({
+export const defaultSchedule = (timeZone = "UTC"): ScheduleState => ({
   frequency: "daily",
   startTime: "02:00",
-  startDate: new Date().toISOString().slice(0, 10),
+  startDate: todayInZone(timeZone),
   weekday: 0,
   customCron: "0 2 * * *",
 });
 
 const NIGHT_HOURS = [23, 0, 1, 2, 3, 4, 5, 6] as const;
 
-/** Random daily schedule between 23:00 and 06:00 UTC to stagger backup load. */
-export function randomNightSchedule(): ScheduleState {
+/** Random daily schedule between 23:00 and 06:00 in the appliance timezone. */
+export function randomNightSchedule(timeZone = "UTC"): ScheduleState {
   const hour = NIGHT_HOURS[Math.floor(Math.random() * NIGHT_HOURS.length)];
   const minute = Math.floor(Math.random() * 60);
   const startTime = `${pad(hour)}:${pad(minute)}`;
-  const startDate = new Date().toISOString().slice(0, 10);
+  const startDate = todayInZone(timeZone);
   return {
     frequency: "daily",
     startTime,
@@ -61,20 +61,20 @@ export function buildCron(s: ScheduleState): string {
   return `${mm} ${hours.join(",")} * * *`;
 }
 
-export function scheduleStartISO(s: ScheduleState): string {
+/** RFC3339 UTC instant for the schedule's first eligible wall-clock time. */
+export function scheduleStartISO(s: ScheduleState, timeZone = "UTC"): string {
   if (!s.startDate) return "";
-  const [hh, mm] = parseTime(s.startTime);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${s.startDate}T${pad(hh)}:${pad(mm)}:00Z`;
+  return instantFromWallClock(s.startDate, s.startTime, timeZone).toISOString();
 }
 
-export function parseSchedule(cron: string, startISO: string): ScheduleState {
-  const base = defaultSchedule();
+export function parseSchedule(cron: string, startISO: string, timeZone = "UTC"): ScheduleState {
+  const base = defaultSchedule(timeZone);
   if (startISO) {
     const d = new Date(startISO);
     if (!Number.isNaN(d.getTime())) {
-      base.startDate = d.toISOString().slice(0, 10);
-      base.startTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+      const wall = wallClockFromInstant(startISO, timeZone);
+      base.startDate = wall.date;
+      base.startTime = wall.time;
     } else if (/^\d{4}-\d{2}-\d{2}/.test(startISO)) {
       base.startDate = startISO.slice(0, 10);
       const m = startISO.match(/T(\d{2}):(\d{2})/);
@@ -140,6 +140,63 @@ export function describeSchedule(s: ScheduleState): string {
     default:
       return `Cron ${s.customCron}`;
   }
+}
+
+function todayInZone(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function wallClockFromInstant(iso: string, timeZone: string): { date: string; time: string } {
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  let hour = get("hour");
+  if (hour === "24") hour = "00";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    time: `${hour.padStart(2, "0")}:${get("minute").padStart(2, "0")}`,
+  };
+}
+
+function instantFromWallClock(date: string, time: string, timeZone: string): Date {
+  const [y, m, d] = date.split("-").map((x) => Number(x));
+  const [hh, mm] = parseTime(time);
+  let utcMs = Date.UTC(y, m - 1, d, hh, mm, 0);
+  for (let i = 0; i < 5; i++) {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(utcMs));
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find((p) => p.type === type)?.value ?? "0");
+    let ph = get("hour");
+    if (ph === 24) ph = 0;
+    const localAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), ph, get("minute"), 0);
+    const target = Date.UTC(y, m - 1, d, hh, mm, 0);
+    const delta = target - localAsUtc;
+    utcMs += delta;
+    if (delta === 0) break;
+  }
+  return new Date(utcMs);
 }
 
 function parseTime(t: string): [number, number] {

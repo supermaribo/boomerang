@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../App";
+import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import FirewallReminder from "../components/FirewallReminder";
@@ -43,12 +44,13 @@ const emptyForm = {
 };
 
 export default function DatabaseWizard() {
+  const { timezone } = useTimezone();
   const { id } = useParams();
   const editing = Boolean(id);
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(emptyForm);
-  const [schedule, setSchedule] = useState<ScheduleState>(() => randomNightSchedule());
+  const [schedule, setSchedule] = useState<ScheduleState>(() => randomNightSchedule(timezone));
   const [servers, setServers] = useState<FileServer[]>([]);
   const [allTables, setAllTables] = useState<string[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -104,7 +106,7 @@ export default function DatabaseWizard() {
         if (d.includeTables?.length) {
           setSelectedTables(d.includeTables);
         }
-        setSchedule(parseSchedule(d.scheduleCron, d.scheduleStart || ""));
+        setSchedule(parseSchedule(d.scheduleCron, d.scheduleStart || "", timezone));
         setLoaded(true);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "load failed"));
@@ -114,7 +116,7 @@ export default function DatabaseWizard() {
     ...form,
     fileServerId: form.fileServerId || null,
     scheduleCron: buildCron(schedule),
-    scheduleStart: scheduleStartISO(schedule),
+    scheduleStart: scheduleStartISO(schedule, timezone),
     retainCount: 0,
     retainDays: 0,
   });
@@ -422,6 +424,7 @@ export default function DatabaseWizard() {
           <ScheduleRetention
             schedule={schedule}
             onSchedule={setSchedule}
+            timeZone={timezone}
             retention={{
               retainHourly: form.retainHourly,
               retainDaily: form.retainDaily,

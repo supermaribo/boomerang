@@ -6,15 +6,18 @@ import (
 	"time"
 )
 
-// Night backup hours (UTC): 23:00 through 06:00 inclusive.
+// Night backup hours: 23:00 through 06:00 inclusive (appliance local time).
 var nightHours = []int{23, 0, 1, 2, 3, 4, 5, 6}
 
-// RandomNight returns a daily cron and RFC3339 start time staggered across 23:00–06:00 UTC.
-func RandomNight() (cron string, startRFC3339 string) {
+// RandomNight returns a daily cron and RFC3339 start time staggered across 23:00–06:00 in loc.
+func RandomNight(loc *time.Location) (cron string, startRFC3339 string) {
+	if loc == nil {
+		loc = time.UTC
+	}
 	h := nightHours[rand.IntN(len(nightHours))]
 	m := rand.IntN(60)
 	cron = fmt.Sprintf("%d %d * * *", m, h)
-	now := time.Now().UTC()
-	start := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, time.UTC)
+	now := time.Now().In(loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc)
 	return cron, start.Format(time.RFC3339)
 }
