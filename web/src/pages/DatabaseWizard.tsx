@@ -8,7 +8,7 @@ import ScheduleRetention, { retentionSummary } from "../components/ScheduleReten
 import {
   ScheduleState,
   buildCron,
-  defaultSchedule,
+  randomNightSchedule,
   parseSchedule,
   scheduleStartISO,
 } from "../lib/schedule";
@@ -48,7 +48,7 @@ export default function DatabaseWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(emptyForm);
-  const [schedule, setSchedule] = useState<ScheduleState>(defaultSchedule);
+  const [schedule, setSchedule] = useState<ScheduleState>(() => randomNightSchedule());
   const [servers, setServers] = useState<FileServer[]>([]);
   const [allTables, setAllTables] = useState<string[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);

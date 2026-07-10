@@ -10,6 +10,7 @@ import (
 
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/remote"
+	"github.com/boomerang-backup/boomerang/internal/schedule"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -361,7 +362,11 @@ func (s *Server) buildFileServer(id string, req fileServerWrite, requireSecret b
 		req.ExcludePaths = []string{}
 	}
 	if req.ScheduleCron == "" {
-		req.ScheduleCron = "0 2 * * *"
+		cron, start := schedule.RandomNight()
+		req.ScheduleCron = cron
+		if strings.TrimSpace(req.ScheduleStart) == "" {
+			req.ScheduleStart = start
+		}
 	}
 	if req.RetainHourly == 0 && req.RetainDaily == 0 && req.RetainWeekly == 0 && req.RetainMonthly == 0 && req.RetainYearly == 0 {
 		if req.RetainCount == 0 && req.RetainDays == 0 {
@@ -701,7 +706,11 @@ func (s *Server) buildDatabase(id string, req databaseWrite, requireSecret bool)
 		auth = "password"
 	}
 	if req.ScheduleCron == "" {
-		req.ScheduleCron = "0 2 * * *"
+		cron, start := schedule.RandomNight()
+		req.ScheduleCron = cron
+		if strings.TrimSpace(req.ScheduleStart) == "" {
+			req.ScheduleStart = start
+		}
 	}
 	if req.RetainHourly == 0 && req.RetainDaily == 0 && req.RetainWeekly == 0 && req.RetainMonthly == 0 && req.RetainYearly == 0 {
 		if req.RetainCount == 0 && req.RetainDays == 0 {

@@ -59,27 +59,14 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 
 	host := t.MysqlHost
 	port := t.MysqlPort
-	var tunnel *ssh.Client
-	var localListener net.Listener
+	var tunnelCleanup func()
 	if t.UseTunnel {
-		log("opening SSH tunnel for MySQL")
-		tunnel, err = remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret, remote.HostKeyTrust{
-			KnownFingerprint: t.SSHHostKey,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("ssh tunnel: %w", err)
-		}
-		defer tunnel.Close()
-		localListener, err = net.Listen("tcp", "127.0.0.1:0")
+		var err error
+		host, port, tunnelCleanup, err = mysqlConn(t, log)
 		if err != nil {
 			return nil, err
 		}
-		localPort := localListener.Addr().(*net.TCPAddr).Port
-		go forward(tunnel, localListener, net.JoinHostPort(t.MysqlHost, fmt.Sprintf("%d", t.MysqlPort)), log)
-		host = "127.0.0.1"
-		port = localPort
-		defer localListener.Close()
-		time.Sleep(200 * time.Millisecond)
+		defer tunnelCleanup()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
@@ -94,7 +81,7 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 	args := []string{
 		defaults,
 	}
-	args = append(args, sslDisableArgs(mysqldump)...)
+	args = append(args, mysqlClientArgs(mysqldump)...)
 	args = append(args,
 		"--single-transaction",
 		"--routines",

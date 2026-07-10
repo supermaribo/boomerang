@@ -92,6 +92,10 @@ export default function ScheduleRetention({
         <option value="weekly">Every week</option>
         <option value="custom">Custom cron</option>
       </select>
+      <p className="muted small">
+        New backups pick a random time between 23:00 and 06:00 UTC so jobs don&apos;t all run at
+        once. You can change it below.
+      </p>
 
       <div className="row2">
         <div>

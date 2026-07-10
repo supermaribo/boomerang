@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 // ListTables returns table names in the target database.
@@ -23,7 +22,7 @@ func ListTables(t Target, log Logger) ([]string, error) {
 	}
 	defer cleanup()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), mysqlListTablesTimeout)
 	defer cancel()
 
 	defaults, cleanupDefaults, err := defaultsExtraFile(host, port, t.MysqlUser, t.MysqlPass)
@@ -34,10 +33,10 @@ func ListTables(t Target, log Logger) ([]string, error) {
 
 	cmd := exec.CommandContext(ctx, mysqlBin, append([]string{
 		defaults,
-	}, append(sslDisableArgs(mysqlBin), "-N", "-B", "-e", "SHOW TABLES", t.MysqlDB)...)...)
+	}, append(mysqlClientArgs(mysqlBin), "-N", "-B", "-e", "SHOW TABLES", t.MysqlDB)...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("list tables: %w (%s)", err, strings.TrimSpace(string(out)))
+		return nil, wrapMySQLExecError("list tables", err, out)
 	}
 	var tables []string
 	for _, line := range strings.Split(string(out), "\n") {

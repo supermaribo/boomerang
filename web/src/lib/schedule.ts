@@ -24,6 +24,23 @@ export const defaultSchedule = (): ScheduleState => ({
   customCron: "0 2 * * *",
 });
 
+const NIGHT_HOURS = [23, 0, 1, 2, 3, 4, 5, 6] as const;
+
+/** Random daily schedule between 23:00 and 06:00 UTC to stagger backup load. */
+export function randomNightSchedule(): ScheduleState {
+  const hour = NIGHT_HOURS[Math.floor(Math.random() * NIGHT_HOURS.length)];
+  const minute = Math.floor(Math.random() * 60);
+  const startTime = `${pad(hour)}:${pad(minute)}`;
+  const startDate = new Date().toISOString().slice(0, 10);
+  return {
+    frequency: "daily",
+    startTime,
+    startDate,
+    weekday: 0,
+    customCron: `${minute} ${hour} * * *`,
+  };
+}
+
 export function buildCron(s: ScheduleState): string {
   if (s.frequency === "custom") {
     return s.customCron.trim() || "0 2 * * *";

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/boomerang-backup/boomerang/internal/archive"
 	"github.com/boomerang-backup/boomerang/internal/crypto"
-	"github.com/boomerang-backup/boomerang/internal/remote"
 )
 
 // RestoreFull imports full.sql.zst into the target database over optional SSH tunnel.
@@ -79,7 +77,7 @@ func restoreSQL(box *crypto.Box, t Target, versionDir string, onlyTables []strin
 	}
 	defer cleanupDefaults()
 
-	cmd := exec.CommandContext(ctx, mysqlBin, append([]string{defaults}, append(sslDisableArgs(mysqlBin), t.MysqlDB)...)...)
+	cmd := exec.CommandContext(ctx, mysqlBin, append([]string{defaults}, append(mysqlClientArgs(mysqlBin), t.MysqlDB)...)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -134,36 +132,6 @@ func tableFromDumpLine(line string) string {
 		return parseTableName(line)
 	}
 	return ""
-}
-
-func mysqlConn(t Target, log Logger) (host string, port int, cleanup func(), err error) {
-	cleanup = func() {}
-	host = t.MysqlHost
-	port = t.MysqlPort
-	if !t.UseTunnel {
-		return host, port, cleanup, nil
-	}
-	log("opening SSH tunnel for MySQL restore")
-	tunnel, err := remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret, remote.HostKeyTrust{
-		KnownFingerprint: t.SSHHostKey,
-	})
-	if err != nil {
-		return "", 0, cleanup, fmt.Errorf("ssh tunnel: %w", err)
-	}
-	localListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		_ = tunnel.Close()
-		return "", 0, cleanup, err
-	}
-	localPort := localListener.Addr().(*net.TCPAddr).Port
-	remoteMySQL := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", t.MysqlPort))
-	go forward(tunnel, localListener, remoteMySQL, log)
-	cleanup = func() {
-		_ = localListener.Close()
-		_ = tunnel.Close()
-	}
-	time.Sleep(200 * time.Millisecond)
-	return "127.0.0.1", localPort, cleanup, nil
 }
 
 func ReadManifestTables(versionDir string) ([]string, error) {
