@@ -7,6 +7,7 @@ import SiteFooter from "../components/SiteFooter";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 import { formatApplianceDateTime } from "../lib/formatTime";
 import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
+import { retentionSummary } from "../components/ScheduleRetention";
 
 export type FileServer = {
   id: string;

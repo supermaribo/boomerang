@@ -6,6 +6,7 @@ import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
 import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
+import { retentionSummary } from "../components/ScheduleRetention";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 import { formatApplianceDateTime } from "../lib/formatTime";
 

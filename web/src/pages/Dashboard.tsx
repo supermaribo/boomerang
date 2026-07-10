@@ -4,6 +4,7 @@ import { api } from "../App";
 import { useTimezone } from "../context/Timezone";
 import { formatApplianceDate, formatApplianceTime } from "../lib/formatTime";
 import Nav from "../components/Nav";
+import SiteFooter from "../components/SiteFooter";
 import TargetHealthBadge, { type TargetHealthRow } from "../components/TargetHealthBadge";
 
 type Dash = {
