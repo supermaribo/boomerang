@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../App";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
+import VersionLogPanel from "../components/VersionLogPanel";
 
 type Version = {
   id: string;
@@ -34,6 +35,7 @@ function fmtBytes(n: number) {
 
 export default function ExploreBackups() {
   const { id = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const [server, setServer] = useState<ServerMeta | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
   const [vid, setVid] = useState("");
@@ -46,6 +48,7 @@ export default function ExploreBackups() {
   const [confirm, setConfirm] = useState("");
   const [deleteVid, setDeleteVid] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [logVid, setLogVid] = useState("");
   const [busy, setBusy] = useState(false);
   const [total, setTotal] = useState(0);
 
@@ -60,10 +63,10 @@ export default function ExploreBackups() {
       api<Version[]>(`/api/file-servers/${id}/versions`),
     ]);
     setServer(fs);
+    setVersions(vs);
     const ok = vs.filter((v) => v.status === "succeeded");
-    setVersions(ok);
     const want = selectId !== undefined ? selectId : vid;
-    if (want && ok.some((v) => v.id === want)) {
+    if (want && vs.some((v) => v.id === want)) {
       setVid(want);
     } else if (ok[0]) {
       setVid(ok[0].id);
@@ -92,8 +95,9 @@ export default function ExploreBackups() {
   };
 
   useEffect(() => {
-    loadVersions().catch((e) => setError(String(e.message || e)));
-  }, [id]);
+    const ver = searchParams.get("version") || undefined;
+    loadVersions(ver).catch((e) => setError(String(e.message || e)));
+  }, [id, searchParams]);
 
   useEffect(() => {
     if (!vid) return;
@@ -263,16 +267,19 @@ export default function ExploreBackups() {
       <div className="split explore">
         <section className="tile">
           <h2>Versions</h2>
-          {versions.length === 0 && <p className="muted">No successful backups yet.</p>}
+          {versions.length === 0 && <p className="muted">No backups yet.</p>}
           <ul className="list versions">
             {versions.map((v) => (
               <li key={v.id} className="version-item">
                 <button
                   type="button"
                   className={vid === v.id ? "version active" : "version"}
+                  disabled={v.status !== "succeeded"}
                   onClick={() => {
+                    if (v.status !== "succeeded") return;
                     setDeleteVid("");
                     setDeleteConfirm("");
+                    setLogVid("");
                     setVid(v.id);
                     setPath("");
                     setQ("");
@@ -280,22 +287,44 @@ export default function ExploreBackups() {
                   }}
                 >
                   <strong>{new Date(v.createdAt + (v.createdAt.includes("T") ? "" : "Z")).toLocaleString()}</strong>
+                  <span className={`pill ${v.status}`}>{v.status}</span>
                   <span className="muted small">{fmtBytes(v.bytes)}</span>
                 </button>
-                <button
-                  type="button"
-                  className="ghost danger-text version-delete"
-                  disabled={busy}
-                  onClick={() => {
-                    setDeleteVid(v.id);
-                    setDeleteConfirm("");
-                  }}
-                >
-                  Delete
-                </button>
+                <div className="version-item-actions">
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setLogVid(logVid === v.id ? "" : v.id);
+                      setDeleteVid("");
+                    }}
+                  >
+                    Log
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost danger-text version-delete"
+                    disabled={busy}
+                    onClick={() => {
+                      setDeleteVid(v.id);
+                      setDeleteConfirm("");
+                      setLogVid("");
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
+          {logVid && (
+            <VersionLogPanel
+              url={`/api/file-servers/${id}/versions/${logVid}/logs`}
+              title="Backup log"
+              onClose={() => setLogVid("")}
+            />
+          )}
           {deleteVid && (
             <div className="delete-version-box">
               <p className="muted small">

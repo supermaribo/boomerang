@@ -4,33 +4,12 @@ import { api } from "../App";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 
-type Version = {
-  id: string;
-  targetType: string;
-  targetId: string;
-  status: string;
-  bytes: number;
-  createdAt: string;
-};
-
-type Job = {
-  id: string;
-  targetType: string;
-  targetId: string;
-  kind: string;
-  status: string;
-  error: string;
-  createdAt: string;
-};
-
 type Dash = {
   fileServers: number;
   databases: number;
   backupCount: number;
   storageBytes: number;
   dataDir: string;
-  recentBackups: Version[];
-  recentJobs: Job[];
 };
 
 type RecentRow = {
@@ -55,24 +34,65 @@ function fmtBytes(n: number) {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function fmtWhen(s: string) {
-  const d = new Date(s.includes("T") ? s : s + "Z");
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleString();
+function parseWhen(s: string) {
+  const d = new Date(s.includes("T") ? s : `${s}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtDate(s: string) {
+  const d = parseWhen(s);
+  return d ? d.toLocaleDateString() : s;
+}
+
+function fmtTime(s: string) {
+  const d = parseWhen(s);
+  return d ? d.toLocaleTimeString() : "";
+}
+
+function RecentBackupList({ rows }: { rows: RecentRow[] }) {
+  if (rows.length === 0) {
+    return <p className="muted">No backups yet.</p>;
+  }
+  return (
+    <ul className="list dash-backup-list">
+      {rows.map((b) => (
+        <li key={b.id}>
+          <div className="dash-backup-main">
+            <div className="dash-backup-top">
+              <strong className="dash-backup-name">{b.targetName || b.targetId}</strong>
+              <span className={`pill ${b.status}`}>{b.status}</span>
+            </div>
+            <p className="muted small dash-backup-meta">
+              {fmtBytes(b.bytes)} · {fmtDate(b.createdAt)} · {fmtTime(b.createdAt)}
+            </p>
+          </div>
+          {b.exploreUrl ? (
+            <Link className="ghost btn-link dash-backup-explore" to={b.exploreUrl}>
+              Explore
+            </Link>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export default function Dashboard({ onLogout }: Props) {
   const [data, setData] = useState<Dash | null>(null);
-  const [recent, setRecent] = useState<RecentRow[]>([]);
+  const [fileBackups, setFileBackups] = useState<RecentRow[]>([]);
+  const [dbBackups, setDbBackups] = useState<RecentRow[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
     Promise.all([
       api<Dash>("/api/dashboard"),
-      api<RecentRow[]>("/api/backups/recent?limit=20"),
+      api<RecentRow[]>("/api/backups/recent?limit=15&type=file"),
+      api<RecentRow[]>("/api/backups/recent?limit=15&type=db"),
     ])
-      .then(([d, r]) => {
+      .then(([d, files, dbs]) => {
         setData(d);
-        setRecent(r);
+        setFileBackups(files);
+        setDbBackups(dbs);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
   }, []);
@@ -123,58 +143,22 @@ export default function Dashboard({ onLogout }: Props) {
       <div className="dash-recents" id="recent-backups">
         <section className="tile dash-section">
           <div className="section-head">
-            <h2>Recent backups</h2>
+            <h2>Recent file backups</h2>
+            <Link className="text-link" to="/app/file-servers">
+              All file servers →
+            </Link>
           </div>
-          {recent.length === 0 && <p className="muted">No backups yet.</p>}
-          <ul className="list">
-            {recent.map((b) => (
-              <li key={b.id}>
-                <div>
-                  <strong>{b.targetName || b.targetId}</strong>
-                  <span className="muted">
-                    {" "}
-                    · {b.targetType} · {b.status} · {fmtBytes(b.bytes)}
-                  </span>
-                  <div className="muted small">{fmtWhen(b.createdAt)}</div>
-                </div>
-                <div className="actions tight">
-                  {b.targetType === "file" && b.exploreUrl && (
-                    <Link className="ghost btn-link" to={b.exploreUrl}>
-                      Explore
-                    </Link>
-                  )}
-                  {b.targetType === "db" && (
-                    <Link className="ghost btn-link" to="/app/databases">
-                      Databases
-                    </Link>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <RecentBackupList rows={fileBackups} />
         </section>
 
         <section className="tile dash-section">
           <div className="section-head">
-            <h2>Recent jobs</h2>
+            <h2>Recent database backups</h2>
+            <Link className="text-link" to="/app/databases">
+              All databases →
+            </Link>
           </div>
-          {(data?.recentJobs || []).length === 0 && <p className="muted">No jobs yet.</p>}
-          <ul className="list">
-            {(data?.recentJobs || []).map((j) => (
-              <li key={j.id}>
-                <div>
-                  <strong>
-                    {j.kind} · {j.targetType}
-                  </strong>
-                  <span className={`pill ${j.status}`}>{j.status}</span>
-                  <div className="muted small">
-                    {fmtWhen(j.createdAt)}
-                    {j.error ? ` · ${j.error}` : ""}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <RecentBackupList rows={dbBackups} />
         </section>
       </div>
       <SiteFooter />

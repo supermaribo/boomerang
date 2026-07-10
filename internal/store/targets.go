@@ -65,15 +65,26 @@ type Database struct {
 	UpdatedAt        string
 }
 
-func (s *Store) ListRecentVersions(limit int) ([]Version, error) {
+func (s *Store) ListRecentVersions(limit int, targetType string) ([]Version, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.DB.Query(`
+	var rows *sql.Rows
+	var err error
+	if targetType != "" {
+		rows, err = s.DB.Query(`
+		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at
+		FROM backup_versions
+		WHERE target_type = ?
+		ORDER BY created_at DESC
+		LIMIT ?`, targetType, limit)
+	} else {
+		rows, err = s.DB.Query(`
 		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at
 		FROM backup_versions
 		ORDER BY created_at DESC
 		LIMIT ?`, limit)
+	}
 	if err != nil {
 		return nil, err
 	}

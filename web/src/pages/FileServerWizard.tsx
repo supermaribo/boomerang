@@ -368,6 +368,11 @@ export default function FileServerWizard() {
             </div>
             <label>Username</label>
             <input value={form.username} onChange={(e) => set("username", e.target.value)} required />
+            <p className="callout warn">
+              This account must have <strong>read access</strong> to all paths you back up and{" "}
+              <strong>write access</strong> where you may restore. If permissions are too tight, backups
+              can be incomplete (files skipped) and restores may fail.
+            </p>
             <FirewallReminder
               targetHost={form.host}
               port={form.port}

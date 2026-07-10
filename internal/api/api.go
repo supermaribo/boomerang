@@ -244,7 +244,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 	dbCount, _ := s.store.CountDatabases()
 	backupCount, _ := s.store.CountBackupVersions()
 	storageBytes, _ := s.store.SumBackupBytes()
-	recent, _ := s.store.ListRecentVersions(15)
+	recent, _ := s.store.ListRecentVersions(15, "")
 	jobs, _ := s.store.ListRecentJobs(10)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"fileServers":    fsCount,

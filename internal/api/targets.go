@@ -30,6 +30,7 @@ func (s *Server) routesTargets(r chi.Router) {
 	r.Get("/file-servers/{id}/versions", s.handleListFileVersions)
 	r.Get("/file-servers/{id}/versions/{vid}", s.handleGetFileVersion)
 	r.Get("/file-servers/{id}/versions/{vid}/tree", s.handleFileVersionTree)
+	r.Get("/file-servers/{id}/versions/{vid}/logs", s.handleFileVersionLogs)
 	r.Post("/file-servers/{id}/versions/{vid}/restore", s.handleRestoreFileVersion)
 	r.Post("/file-servers/{id}/versions/{vid}/verify", s.handleVerifyFileVersion)
 	r.Post("/file-servers/{id}/versions/{vid}/download", s.handleDownloadFileVersion)

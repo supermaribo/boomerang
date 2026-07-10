@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/boomerang-backup/boomerang/internal/backup"
 )
 
 var (
@@ -51,6 +53,14 @@ func summarizeRsyncWarnings(output, remoteRoot string) string {
 }
 
 func sampleDeniedPaths(output, remoteRoot string, max int) []string {
+	paths := allDeniedPaths(output, remoteRoot)
+	if max <= 0 || len(paths) <= max {
+		return paths
+	}
+	return paths[:max]
+}
+
+func allDeniedPaths(output, remoteRoot string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, line := range strings.Split(output, "\n") {
@@ -70,11 +80,29 @@ func sampleDeniedPaths(output, remoteRoot string, max int) []string {
 		}
 		seen[path] = true
 		out = append(out, path)
-		if len(out) >= max {
-			break
-		}
 	}
 	return out
+}
+
+func writeSkippedLog(outDir, output, remoteRoot string) (int, error) {
+	paths := allDeniedPaths(output, remoteRoot)
+	if len(paths) == 0 {
+		return 0, nil
+	}
+	f, err := os.OpenFile(filepath.Join(outDir, backup.SkippedLogFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range paths {
+		if _, err := fmt.Fprintln(f, p); err != nil {
+			_ = f.Close()
+			return 0, err
+		}
+	}
+	if err := f.Close(); err != nil {
+		return 0, err
+	}
+	return len(paths), nil
 }
 
 func shortenRemotePath(full, root string) string {

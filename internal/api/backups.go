@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/boomerang-backup/boomerang/internal/archive"
+	"github.com/boomerang-backup/boomerang/internal/backup"
 	"github.com/boomerang-backup/boomerang/internal/filebackup"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -333,4 +334,32 @@ func (s *Server) handleListDBVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleFileVersionLogs(w http.ResponseWriter, r *http.Request) {
+	s.writeVersionLogs(w, r, "file")
+}
+
+func (s *Server) handleDBVersionLogs(w http.ResponseWriter, r *http.Request) {
+	s.writeVersionLogs(w, r, "db")
+}
+
+func (s *Server) writeVersionLogs(w http.ResponseWriter, r *http.Request, targetType string) {
+	tid := chi.URLParam(r, "id")
+	vid := chi.URLParam(r, "vid")
+	v, err := s.store.GetVersion(vid)
+	if err != nil || v == nil || v.TargetType != targetType || v.TargetID != tid {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	lines, err := backup.ReadVersionLog(v.PathOnDisk)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	skipped, _ := backup.ReadSkippedLog(v.PathOnDisk)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"lines":   lines,
+		"skipped": skipped,
+	})
 }

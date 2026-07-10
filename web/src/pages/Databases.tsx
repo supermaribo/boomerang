@@ -1,8 +1,9 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../App";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
+import VersionLogPanel from "../components/VersionLogPanel";
 import { retentionSummary } from "../components/ScheduleRetention";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 
@@ -53,7 +54,15 @@ type DeleteVersionState = {
   confirm: string;
 };
 
+function fmtBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export default function Databases() {
+  const [searchParams] = useSearchParams();
   const [list, setList] = useState<Database[]>([]);
   const [versions, setVersions] = useState<Record<string, Version[]>>({});
   const [error, setError] = useState("");
@@ -61,6 +70,7 @@ export default function Databases() {
   const [busy, setBusy] = useState(false);
   const [restore, setRestore] = useState<RestoreState | null>(null);
   const [deleteVersion, setDeleteVersion] = useState<DeleteVersionState | null>(null);
+  const [logVersion, setLogVersion] = useState<{ dbId: string; vid: string } | null>(null);
 
   const load = async () => {
     const dbs = await api<Database[]>("/api/databases");
@@ -77,6 +87,18 @@ export default function Databases() {
   useEffect(() => {
     void load().catch((e) => setError(e instanceof Error ? e.message : "load failed"));
   }, []);
+
+  useEffect(() => {
+    const dbId = searchParams.get("db");
+    if (!dbId || list.length === 0) return;
+    const el = document.getElementById(`db-${dbId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      el.classList.add("dash-highlight");
+      const t = window.setTimeout(() => el.classList.remove("dash-highlight"), 2500);
+      return () => window.clearTimeout(t);
+    }
+  }, [list, searchParams]);
 
   const remove = async (id: string) => {
     if (!confirm("Delete this database target?")) return;
@@ -298,7 +320,7 @@ export default function Databases() {
           {list.map((d) => {
             const sched = parseSchedule(d.scheduleCron, d.scheduleStart || "");
             return (
-              <li key={d.id}>
+              <li key={d.id} id={`db-${d.id}`}>
                 <div className="list-main">
                   <strong>{d.name}</strong>
                   {!d.enabled && <span className="badge">disabled</span>}
@@ -312,25 +334,46 @@ export default function Databases() {
                       ? ` · ${d.includeTables.length} table(s)`
                       : " · all tables"}
                   </div>
-                  {(versions[d.id] || []).filter((v) => v.status === "succeeded").length > 0 && (
+                  {(versions[d.id] || []).length > 0 && (
                     <div className="version-actions">
-                      {(versions[d.id] || [])
-                        .filter((v) => v.status === "succeeded")
-                        .slice(0, 5)
-                        .map((v) => (
-                          <div key={v.id} className="version-row">
+                      {(versions[d.id] || []).slice(0, 8).map((v) => (
+                          <div
+                            key={v.id}
+                            className={
+                              searchParams.get("version") === v.id
+                                ? "version-row dash-highlight"
+                                : "version-row"
+                            }
+                          >
                             <span className="muted small">
-                              {v.createdAt} · {v.bytes} B
+                              {v.createdAt} · {fmtBytes(v.bytes)} ·{" "}
+                              <span className={`pill ${v.status}`}>{v.status}</span>
                             </span>
                             <div className="version-row-actions">
                               <button
                                 type="button"
                                 className="ghost"
                                 disabled={busy}
-                                onClick={() => void openRestore(d, v.id)}
+                                onClick={() =>
+                                  setLogVersion(
+                                    logVersion?.vid === v.id && logVersion.dbId === d.id
+                                      ? null
+                                      : { dbId: d.id, vid: v.id },
+                                  )
+                                }
                               >
-                                Restore
+                                Log
                               </button>
+                              {v.status === "succeeded" && (
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  disabled={busy}
+                                  onClick={() => void openRestore(d, v.id)}
+                                >
+                                  Restore
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="ghost danger-text"
@@ -345,6 +388,13 @@ export default function Databases() {
                           </div>
                         ))}
                     </div>
+                  )}
+                  {logVersion?.dbId === d.id && (
+                    <VersionLogPanel
+                      url={`/api/databases/${d.id}/versions/${logVersion.vid}/logs`}
+                      title={`Backup log — ${d.name}`}
+                      onClose={() => setLogVersion(null)}
+                    />
                   )}
                 </div>
                 <div className="list-actions">

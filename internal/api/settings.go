@@ -29,6 +29,7 @@ func (s *Server) routesExtra(r chi.Router) {
 	r.Post("/settings/test-email", s.handleTestEmail)
 	r.Post("/settings/password", s.handleChangePassword)
 	r.Get("/appliance", s.handleGetAppliance)
+	r.Get("/databases/{id}/versions/{vid}/logs", s.handleDBVersionLogs)
 	r.Post("/databases/{id}/versions/{vid}/restore", s.handleRestoreDatabase)
 	r.Get("/databases/{id}/versions/{vid}", s.handleGetDBVersion)
 	r.Get("/databases/{id}/versions/{vid}/tables", s.handleDBVersionTables)
@@ -37,7 +38,8 @@ func (s *Server) routesExtra(r chi.Router) {
 
 func (s *Server) handleRecentBackups(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	versions, err := s.store.ListRecentVersions(limit)
+	targetType := strings.TrimSpace(r.URL.Query().Get("type"))
+	versions, err := s.store.ListRecentVersions(limit, targetType)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -61,13 +63,13 @@ func (s *Server) handleRecentBackups(w http.ResponseWriter, r *http.Request) {
 			if name == "" {
 				name = v.TargetID
 			}
-			url = "/app/file-servers/" + v.TargetID + "/backups"
+			url = "/app/file-servers/" + v.TargetID + "/backups?version=" + v.ID
 		} else if v.TargetType == "db" {
 			name = dname[v.TargetID]
 			if name == "" {
 				name = v.TargetID
 			}
-			url = "/app/databases"
+			url = "/app/databases?db=" + v.TargetID + "&version=" + v.ID
 		}
 		out = append(out, map[string]any{
 			"id": v.ID, "targetType": v.TargetType, "targetId": v.TargetID,

@@ -224,15 +224,36 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 
 	outDir := filepath.Join(r.DataDir, "backups", "files", fileServerID, versionID)
 	_ = r.Store.CreateVersion(versionID, "file", fileServerID, outDir)
-	res, err := filebackup.Backup(target, outDir, opt, func(line string) {
-		_ = r.Store.AppendJobLog(jobID, line)
-	})
+	vlog, err := backup.NewVersionLogger(outDir)
 	if err != nil {
-		_ = os.RemoveAll(outDir)
+		r.fail(jobID, err.Error())
+		return
+	}
+	defer vlog.Close()
+	log := func(line string) {
+		_ = r.Store.AppendJobLog(jobID, line)
+		vlog.Log(line)
+	}
+	log("--- file backup ---")
+	log(fmt.Sprintf("job: %s", jobID))
+	log(fmt.Sprintf("version: %s", versionID))
+	log(fmt.Sprintf("target: %s (%s)", fs.Name, fs.Protocol))
+	log(fmt.Sprintf("started: %s", time.Now().UTC().Format(time.RFC3339)))
+
+	res, err := filebackup.Backup(target, outDir, opt, log)
+	if err != nil {
+		log("error: " + err.Error())
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
 		r.fail(jobID, err.Error())
 		return
 	}
+	log(fmt.Sprintf("summary: %d files backed up, %d bytes, kind=%s", res.Files, res.Bytes, res.Manifest.Kind))
+	if skipped, _ := backup.ReadSkippedLog(outDir); len(skipped) > 0 {
+		log(fmt.Sprintf("summary: %d path(s) missed — listed in skipped.log", len(skipped)))
+	} else {
+		log("summary: no skipped paths recorded")
+	}
+	log(fmt.Sprintf("finished: %s", time.Now().UTC().Format(time.RFC3339)))
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
@@ -387,21 +408,40 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 
 	outDir := filepath.Join(r.DataDir, "backups", "db", databaseID, versionID)
 	_ = r.Store.CreateVersion(versionID, "db", databaseID, outDir)
-	res, err := mysqlbackup.Backup(t, outDir, func(line string) {
-		_ = r.Store.AppendJobLog(jobID, line)
-	})
+	vlog, err := backup.NewVersionLogger(outDir)
 	if err != nil {
-		_ = os.RemoveAll(outDir)
+		r.fail(jobID, err.Error())
+		return
+	}
+	defer vlog.Close()
+	log := func(line string) {
+		_ = r.Store.AppendJobLog(jobID, line)
+		vlog.Log(line)
+	}
+	log("--- database backup ---")
+	log(fmt.Sprintf("job: %s", jobID))
+	log(fmt.Sprintf("version: %s", versionID))
+	log(fmt.Sprintf("target: %s (%s@%s/%s)", db.Name, db.MysqlUser, db.MysqlHost, db.MysqlDB))
+	log(fmt.Sprintf("started: %s", time.Now().UTC().Format(time.RFC3339)))
+
+	res, err := mysqlbackup.Backup(t, outDir, log)
+	if err != nil {
+		log("error: " + err.Error())
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
 		r.fail(jobID, err.Error())
 		return
 	}
 	if err := r.encryptSQL(outDir); err != nil {
-		_ = os.RemoveAll(outDir)
+		log("error: encrypt: " + err.Error())
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
 		r.fail(jobID, err.Error())
 		return
 	}
+	log(fmt.Sprintf("summary: %d table(s) backed up, %d bytes", len(res.Tables), res.Bytes))
+	if len(res.Tables) > 0 {
+		log("tables: " + strings.Join(res.Tables, ", "))
+	}
+	log(fmt.Sprintf("finished: %s", time.Now().UTC().Format(time.RFC3339)))
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)

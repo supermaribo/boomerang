@@ -57,6 +57,7 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		log("note: RSYNC always captures a full snapshot (not incremental on disk)")
 	}
 	var hadPartial bool
+	var rsyncOutput strings.Builder
 	for _, root := range roots {
 		src := fmt.Sprintf("%s@%s:%s/", target.Username, target.Host, strings.TrimSuffix(root, "/")+"/")
 		args := []string{"-az", "--numeric-ids", "--ignore-errors", "-e", strings.Join(sshArgs, " ")}
@@ -79,6 +80,7 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		}
 		if partial {
 			hadPartial = true
+			rsyncOutput.WriteString(out)
 			log(summarizeRsyncWarnings(out, root))
 		}
 	}
@@ -89,6 +91,11 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		}
 		if n == 0 {
 			return nil, fmt.Errorf("rsync: no files could be read (permission denied on remote)")
+		}
+		if skipped, err := writeSkippedLog(outDir, rsyncOutput.String(), roots[0]); err != nil {
+			log(fmt.Sprintf("warning: could not write skipped log: %v", err))
+		} else if skipped > 0 {
+			log(fmt.Sprintf("skipped: %d path(s) listed in %s", skipped, backup.SkippedLogFile))
 		}
 	}
 
@@ -112,6 +119,11 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	}, "", "  ")
 	_ = os.WriteFile(filepath.Join(outDir, "meta.json"), meta, 0o600)
 	log(fmt.Sprintf("done: %d files, %d bytes", files, bytes))
+	if hadPartial {
+		log("status: partial — some remote paths were not readable (see skipped.log if present)")
+	} else {
+		log("status: complete")
+	}
 	return &Result{Bytes: bytes, Files: files, Manifest: *manifest}, nil
 }
 
