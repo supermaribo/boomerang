@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { api } from "../App";
 import Nav from "../components/Nav";
@@ -62,6 +62,7 @@ function fmtBytes(n: number) {
 }
 
 export default function Databases() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [list, setList] = useState<Database[]>([]);
   const [versions, setVersions] = useState<Record<string, Version[]>>({});
@@ -204,9 +205,7 @@ export default function Databases() {
         method: "DELETE",
         body: JSON.stringify({ confirmName: deleteVersion.db.name }),
       });
-      setDeleteVersion(null);
-      setInfo("Backup deleted.");
-      await load();
+      navigate("/app", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "delete failed");
     } finally {
@@ -337,19 +336,23 @@ export default function Databases() {
                   {(versions[d.id] || []).length > 0 && (
                     <div className="version-actions">
                       {(versions[d.id] || []).slice(0, 8).map((v) => (
-                          <div
-                            key={v.id}
-                            className={
-                              searchParams.get("version") === v.id
-                                ? "version-row dash-highlight"
-                                : "version-row"
-                            }
-                          >
-                            <span className="muted small">
-                              {v.createdAt} · {fmtBytes(v.bytes)} ·{" "}
-                              <span className={`pill ${v.status}`}>{v.status}</span>
-                            </span>
-                            <div className="version-row-actions">
+                        <div
+                          key={v.id}
+                          className={
+                            searchParams.get("version") === v.id
+                              ? "version-card dash-highlight"
+                              : "version-card"
+                          }
+                        >
+                          <div className="version-card-body">
+                            <div className="version-card-select version-card-static">
+                              <span className="version-card-when">{v.createdAt}</span>
+                              <span className="version-card-meta">
+                                <span className={`pill ${v.status}`}>{v.status}</span>
+                                <span className="muted small">{fmtBytes(v.bytes)}</span>
+                              </span>
+                            </div>
+                            <div className="version-card-actions">
                               <button
                                 type="button"
                                 className="ghost"
@@ -386,15 +389,18 @@ export default function Databases() {
                               </button>
                             </div>
                           </div>
-                        ))}
+                          {logVersion?.dbId === d.id && logVersion.vid === v.id && (
+                            <div className="version-card-log">
+                              <VersionLogPanel
+                                url={`/api/databases/${d.id}/versions/${v.id}/logs`}
+                                title={`Backup log — ${d.name}`}
+                                onClose={() => setLogVersion(null)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  )}
-                  {logVersion?.dbId === d.id && (
-                    <VersionLogPanel
-                      url={`/api/databases/${d.id}/versions/${logVersion.vid}/logs`}
-                      title={`Backup log — ${d.name}`}
-                      onClose={() => setLogVersion(null)}
-                    />
                   )}
                 </div>
                 <div className="list-actions">

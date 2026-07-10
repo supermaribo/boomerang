@@ -94,8 +94,10 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		}
 		if skipped, err := writeSkippedLog(outDir, rsyncOutput.String(), roots[0]); err != nil {
 			log(fmt.Sprintf("warning: could not write skipped log: %v", err))
-		} else if skipped > 0 {
-			log(fmt.Sprintf("skipped: %d path(s) listed in %s", skipped, backup.SkippedLogFile))
+		} else if len(skipped) > 0 {
+			for _, line := range backup.SkippedLogLines(skipped, 0) {
+				log(line)
+			}
 		}
 	}
 

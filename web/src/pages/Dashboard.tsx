@@ -10,6 +10,14 @@ type Dash = {
   backupCount: number;
   storageBytes: number;
   dataDir: string;
+  applianceStatus?: StatusItem[];
+};
+
+type StatusItem = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
 };
 
 type RecentRow = {
@@ -74,6 +82,34 @@ function RecentBackupList({ rows }: { rows: RecentRow[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function ApplianceStatus({ items }: { items: StatusItem[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+  const allOk = items.every((i) => i.ok);
+  return (
+    <section className="tile dash-status-panel">
+      <div className="dash-status-head">
+        <h2>Appliance status</h2>
+        <span className={`dash-status-summary ${allOk ? "ok" : "warn"}`}>
+          {allOk ? "OK" : "Check"}
+        </span>
+      </div>
+      <ul className="dash-status-grid">
+        {items.map((item) => (
+          <li key={item.id} className={`dash-status-chip ${item.ok ? "ok" : "warn"}`}>
+            <span className="dash-status-icon" aria-hidden>
+              {item.ok ? "✓" : "!"}
+            </span>
+            <span className="dash-status-label">{item.label}</span>
+            <span className="dash-status-detail">{item.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -161,6 +197,11 @@ export default function Dashboard({ onLogout }: Props) {
           <RecentBackupList rows={dbBackups} />
         </section>
       </div>
+
+      {data?.applianceStatus && data.applianceStatus.length > 0 && (
+        <ApplianceStatus items={data.applianceStatus} />
+      )}
+
       <SiteFooter />
     </div>
   );

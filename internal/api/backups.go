@@ -211,6 +211,7 @@ func (s *Server) handleDeleteFileVersion(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_ = s.store.Audit("file_version_delete", fsID+":"+vid)
+	s.scheduleOffsiteMirror()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -358,6 +359,9 @@ func (s *Server) writeVersionLogs(w http.ResponseWriter, r *http.Request, target
 		return
 	}
 	skipped, _ := backup.ReadSkippedLog(v.PathOnDisk)
+	if len(skipped) > 0 && !backup.LogHasMissedPaths(lines) {
+		lines = append(lines, backup.SkippedLogLines(skipped, 0)...)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"lines":   lines,
 		"skipped": skipped,

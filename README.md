@@ -75,6 +75,8 @@ You get a timeline of versions, browse files inside a backup, restore selected p
 - 📅 **Schedules & retention** — friendly “every N hours” UI or cron; hourly/daily/weekly/monthly/yearly keep counts
 - 📧 **Alerts** — local mail (postfix) or custom SMTP; toggles for backup/restore success and failure
 - 🔐 **Encrypted at rest** — credentials and backup blobs encrypted with a local master key
+- ☁️ **Off-site mirror** — optional automatic copy to **Cloudflare R2** after each backup (3-2-1)
+- 🔄 **Restore from R2** — import a previous appliance on first install (before admin password is set)
 - 🗑️ **Delete versions** — remove individual backups you no longer need
 
 ---
@@ -271,9 +273,92 @@ Everything important lives under **`BOOMERANG_DATA_DIR`**:
   backups/               # all file and database versions
 ```
 
-**Copy this entire tree off the appliance** (rsync, snapshots, NAS). Without `master.key`, encrypted backups cannot be recovered.
+### Master key — decrypts everything
 
-To restore on a new host:
+`secrets/master.key` is a 32-byte random key. Boomerang uses it to:
+
+- Encrypt and decrypt **backup files** (the `.enc` blobs under `backups/`)
+- Encrypt **stored passwords** in `app.db` (SSH, MySQL, SMTP, R2 API keys, etc.)
+
+Without `master.key`, your backups are ciphertext — they cannot be read or restored. The off-site R2 mirror includes this file so you can rebuild the appliance; that also means **anyone with your R2 bucket and credentials can download the full key**.
+
+> **Never share `secrets/master.key` — anywhere, ever.**  
+> Do not email it, paste it in chat, upload it to a ticket, commit it to git, or screenshot it. Treat it like the master password to your entire backup system. Keep one encrypted offline copy (password manager, safe) separate from the appliance.
+
+**Copy this entire tree off the appliance** (rsync, snapshots, NAS, or R2 mirror). Without `master.key`, encrypted backups cannot be recovered.
+
+### Off-site mirror (Cloudflare R2)
+
+Boomerang can mirror `/var/lib/boomerang` to **Cloudflare R2** after each successful backup — local copy first, then off-site. Configure in **Settings → Off-site** in the UI.
+
+R2 has a generous free tier (10 GB storage, no egress fees for typical backup use). Backup blobs are already encrypted; the mirror also includes `app.db` and `master.key` so you can rebuild the appliance from R2 alone.
+
+#### 1. Create a bucket
+
+1. Log in to the [Cloudflare dashboard](https://dash.cloudflare.com/).
+2. Go to **Storage & databases** → **R2** → **Overview**.
+3. If prompted, enable R2 for your account (billing may apply above the free tier).
+4. Click **Create bucket**, choose a name (e.g. `boomerang-dr`), leave it **private**.
+
+#### 2. Find your Account ID
+
+On the same **R2 → Overview** page, in **Account details**, copy your **Account ID** (32-character hex string). Paste this into Boomerang’s **Cloudflare account ID** field.
+
+#### 3. Create API credentials (Access Key ID + Secret Access Key)
+
+These are **R2 S3 API tokens**, not your main Cloudflare login or global API key.
+
+1. On **R2 → Overview**, under **Account details**, click **Manage** next to **R2 API tokens** (or **Manage R2 API tokens**).
+2. Click **Create API token** (or **Create account API token** / **Create user API token**).
+3. Set permissions:
+   - **Object Read & Write**
+   - **Apply to specific buckets only** → select the bucket you created
+4. Click **Create API token**.
+5. Cloudflare shows two values — copy both **immediately** (the secret is shown only once):
+   - **Access Key ID** (sometimes labeled Client ID)
+   - **Secret Access Key** (sometimes labeled Client Secret)
+
+Paste them into **Settings → Off-site** in Boomerang. Leave the fields blank on later saves to keep the existing keys.
+
+#### 4. Enable mirroring in Boomerang
+
+1. Open **Settings → Off-site**.
+2. Enable **off-site mirror after backups**.
+3. Enter **Account ID**, **bucket name**, **Access Key ID**, and **Secret Access Key**.
+4. Optional: change **Object prefix** (default `boomerang`) — folder name inside the bucket.
+5. Click **Test connection**, then **Save**.
+6. Use **Mirror now** for an immediate full sync, or wait for the next backup.
+
+After each file or database backup (and when you delete a version), Boomerang syncs changed files to R2 and removes objects that no longer exist locally.
+
+#### 5. Keep the bucket secure
+
+| Practice | Why |
+|----------|-----|
+| **Private bucket** | R2 buckets are private by default — do not enable public access or a public custom domain for DR storage. |
+| **Scoped API token** | Create an R2 token with **Object Read & Write** on **one bucket only** — not Account Admin or all-buckets access. |
+| **Separate tokens** (optional) | Use a **read-only** token on a second appliance if you only need restore; use read/write on the live backup box. |
+| **Store keys only in Boomerang** | Access keys are saved encrypted in `app.db` when you use Settings → Off-site. Do not commit them to git or paste into chat. |
+| **Rotate tokens** | If a key may have leaked, delete the old R2 API token in Cloudflare and create a new one. |
+| **Keep `master.key` separately** | R2 holds an encrypted copy of your data tree, but keep a second offline copy of `secrets/master.key` (password manager, safe) in case both appliance and Cloudflare account are lost. |
+| **Enable versioning** (optional) | In the bucket settings, turn on **object versioning** for protection against accidental overwrites. |
+| **TLS in transit** | Boomerang talks to R2 over HTTPS (`https://<ACCOUNT_ID>.r2.cloudflarestorage.com`). |
+
+Backup **blobs** (`.enc` files) are ciphertext without `master.key`. The mirror still includes `app.db` and `master.key`, so anyone with **both** your R2 credentials and bucket access can download the full appliance — treat R2 credentials like root passwords.
+
+#### 6. Restore on a new appliance (first flight)
+
+On a **fresh install** before you create an admin password:
+
+1. Open the Boomerang UI → **First flight**.
+2. Choose **Restore from R2** (instead of New appliance).
+3. Enter the same **Account ID**, **bucket**, **prefix**, and API keys used for mirroring.
+4. Click **Test connection**, then **Restore appliance**.
+5. The service restarts automatically. Sign in with your **previous** admin password, targets, and backups.
+
+This only works on first install (before an admin password is set). To rebuild manually without the UI, download the mirrored tree from R2 (e.g. [rclone](https://rclone.org/)) into `/var/lib/boomerang`, then restart the service.
+
+To restore on a new host (local copy or manual R2 download):
 
 1. Install Boomerang (or Docker with the same volume data).
 2. Stop the service; restore the data directory.

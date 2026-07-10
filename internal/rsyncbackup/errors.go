@@ -84,25 +84,25 @@ func allDeniedPaths(output, remoteRoot string) []string {
 	return out
 }
 
-func writeSkippedLog(outDir, output, remoteRoot string) (int, error) {
+func writeSkippedLog(outDir, output, remoteRoot string) ([]string, error) {
 	paths := allDeniedPaths(output, remoteRoot)
 	if len(paths) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	f, err := os.OpenFile(filepath.Join(outDir, backup.SkippedLogFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return 0, err
+		return paths, err
 	}
 	for _, p := range paths {
 		if _, err := fmt.Fprintln(f, p); err != nil {
 			_ = f.Close()
-			return 0, err
+			return paths, err
 		}
 	}
 	if err := f.Close(); err != nil {
-		return 0, err
+		return paths, err
 	}
-	return len(paths), nil
+	return paths, nil
 }
 
 func shortenRemotePath(full, root string) string {

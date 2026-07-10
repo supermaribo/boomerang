@@ -10,9 +10,10 @@ type Props = {
   url: string;
   title?: string;
   onClose?: () => void;
+  tall?: boolean;
 };
 
-export default function VersionLogPanel({ url, title = "Backup log", onClose }: Props) {
+export default function VersionLogPanel({ url, title = "Backup log", onClose, tall }: Props) {
   const [lines, setLines] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -30,8 +31,11 @@ export default function VersionLogPanel({ url, title = "Backup log", onClose }: 
       .finally(() => setLoading(false));
   }, [url]);
 
+  const showSkippedSeparate =
+    skipped.length > 0 && !lines.some((l) => l.startsWith("--- missed paths") || l.startsWith("missed: "));
+
   return (
-    <div className="version-log-panel">
+    <div className={`version-log-panel${tall ? " tall" : ""}`}>
       <div className="version-log-head">
         <h3>{title}</h3>
         {onClose && (
@@ -48,7 +52,7 @@ export default function VersionLogPanel({ url, title = "Backup log", onClose }: 
       {lines.length > 0 && (
         <pre className="version-log-body">{lines.join("\n")}</pre>
       )}
-      {skipped.length > 0 && (
+      {showSkippedSeparate && (
         <>
           <h4 className="version-log-subhead">Skipped paths ({skipped.length})</h4>
           <pre className="version-log-body version-log-skipped">{skipped.join("\n")}</pre>

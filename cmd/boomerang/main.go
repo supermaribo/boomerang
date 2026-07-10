@@ -11,6 +11,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/config"
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/jobs"
+	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
 )
 
@@ -43,7 +44,9 @@ func main() {
 		log.Fatalf("crypto: %v", err)
 	}
 
+	offsiteSyncer := offsite.NewSyncer(st, box, cfg.DataDir)
 	runner := jobs.NewRunner(st, box, cfg.DataDir, cfg.MaxConcurrentJobs)
+	runner.Offsite = offsiteSyncer
 	sched := jobs.NewScheduler(runner, st)
 
 	var webFS fs.FS
@@ -55,6 +58,7 @@ func main() {
 
 	srv := api.New(cfg, st, box, webFS, runner)
 	srv.SetScheduler(sched)
+	srv.SetOffsite(offsiteSyncer)
 	nameFor := func(targetType, targetID string) string {
 		switch targetType {
 		case "file":

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../App";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
@@ -35,6 +35,7 @@ function fmtBytes(n: number) {
 
 export default function ExploreBackups() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [server, setServer] = useState<ServerMeta | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
@@ -46,22 +47,28 @@ export default function ExploreBackups() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [deleteVid, setDeleteVid] = useState("");
+  const [showDelete, setShowDelete] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [logVid, setLogVid] = useState("");
+  const [panel, setPanel] = useState<"browse" | "log">("browse");
   const [busy, setBusy] = useState(false);
   const [total, setTotal] = useState(0);
 
-  const selectedPaths = useMemo(
-    () => Object.keys(selected).filter((k) => selected[k]),
-    [selected],
+  const selectedVersion = useMemo(
+    () => versions.find((v) => v.id === vid) ?? null,
+    [versions, vid],
   );
 
+  const canBrowse = selectedVersion?.status === "succeeded";
+
   const loadVersions = async (selectId?: string) => {
-    const [fs, vs] = await Promise.all([
-      api<ServerMeta>(`/api/file-servers/${id}`),
-      api<Version[]>(`/api/file-servers/${id}/versions`),
-    ]);
+    let fs: ServerMeta;
+    try {
+      fs = await api<ServerMeta>(`/api/file-servers/${id}`);
+    } catch {
+      navigate("/app/file-servers", { replace: true });
+      return;
+    }
+    const vs = await api<Version[]>(`/api/file-servers/${id}/versions`);
     setServer(fs);
     setVersions(vs);
     const ok = vs.filter((v) => v.status === "succeeded");
@@ -104,6 +111,24 @@ export default function ExploreBackups() {
     loadTree(vid, path, q).catch((e) => setError(String(e.message || e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vid]);
+
+  const selectedPaths = useMemo(
+    () => Object.keys(selected).filter((k) => selected[k]),
+    [selected],
+  );
+
+  const selectVersion = (versionId: string) => {
+    const v = versions.find((x) => x.id === versionId);
+    setVid(versionId);
+    setPath("");
+    setQ("");
+    setSelected({});
+    setShowDelete(false);
+    setDeleteConfirm("");
+    if (v && v.status !== "succeeded") {
+      setPanel("log");
+    }
+  };
 
   const crumbs = path ? path.split("/") : [];
 
@@ -216,26 +241,16 @@ export default function ExploreBackups() {
   };
 
   const removeVersion = async () => {
-    if (!deleteVid || !server) return;
+    if (!vid || !server) return;
     setBusy(true);
     setError("");
     setInfo("");
     try {
-      await api(`/api/file-servers/${id}/versions/${deleteVid}`, {
+      await api(`/api/file-servers/${id}/versions/${vid}`, {
         method: "DELETE",
         body: JSON.stringify({ confirmName: deleteConfirm }),
       });
-      setInfo("Backup deleted.");
-      setDeleteVid("");
-      setDeleteConfirm("");
-      const nextVid = vid === deleteVid ? "" : vid;
-      if (vid === deleteVid) {
-        setPath("");
-        setQ("");
-        setSelected({});
-        setEntries([]);
-      }
-      await loadVersions(nextVid);
+      navigate("/app", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "delete failed");
     } finally {
@@ -264,194 +279,207 @@ export default function ExploreBackups() {
       <div className="err">{error}</div>
       {info && <p className="ok pad">{info}</p>}
 
-      <div className="split explore">
-        <section className="tile">
-          <h2>Versions</h2>
-          {versions.length === 0 && <p className="muted">No backups yet.</p>}
-          <ul className="list versions">
-            {versions.map((v) => (
-              <li key={v.id} className="version-item">
-                <button
-                  type="button"
-                  className={vid === v.id ? "version active" : "version"}
-                  disabled={v.status !== "succeeded"}
-                  onClick={() => {
-                    if (v.status !== "succeeded") return;
-                    setDeleteVid("");
-                    setDeleteConfirm("");
-                    setLogVid("");
-                    setVid(v.id);
-                    setPath("");
-                    setQ("");
-                    setSelected({});
-                  }}
-                >
-                  <strong>{new Date(v.createdAt + (v.createdAt.includes("T") ? "" : "Z")).toLocaleString()}</strong>
-                  <span className={`pill ${v.status}`}>{v.status}</span>
-                  <span className="muted small">{fmtBytes(v.bytes)}</span>
-                </button>
-                <div className="version-item-actions">
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={busy}
-                    onClick={() => {
-                      setLogVid(logVid === v.id ? "" : v.id);
-                      setDeleteVid("");
-                    }}
-                  >
-                    Log
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost danger-text version-delete"
-                    disabled={busy}
-                    onClick={() => {
-                      setDeleteVid(v.id);
-                      setDeleteConfirm("");
-                      setLogVid("");
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {logVid && (
-            <VersionLogPanel
-              url={`/api/file-servers/${id}/versions/${logVid}/logs`}
-              title="Backup log"
-              onClose={() => setLogVid("")}
-            />
-          )}
-          {deleteVid && (
-            <div className="delete-version-box">
-              <p className="muted small">
-                Permanently delete this backup? Incremental backups that depend on it must be
-                removed first.
-              </p>
-              <label>Type file server name ({server?.name}) to confirm</label>
-              <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
-              <div className="actions">
-                <button
-                  type="button"
-                  className="danger-text"
-                  disabled={busy || deleteConfirm !== server?.name}
-                  onClick={() => void removeVersion()}
-                >
-                  {busy ? "Deleting…" : "Delete backup"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    setDeleteVid("");
-                    setDeleteConfirm("");
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
+      <section className="tile explore-main">
+        <div className="backup-version-bar">
+          <div className="backup-version-pick">
+            <label htmlFor="backup-version">Backup</label>
+            {versions.length === 0 ? (
+              <p className="muted small">No backups yet.</p>
+            ) : (
+              <select
+                id="backup-version"
+                value={vid}
+                onChange={(e) => selectVersion(e.target.value)}
+              >
+                {versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {new Date(
+                      v.createdAt + (v.createdAt.includes("T") ? "" : "Z"),
+                    ).toLocaleString()}{" "}
+                    · {v.status} · {fmtBytes(v.bytes)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {selectedVersion && (
+            <div className="backup-version-meta">
+              <span className={`pill ${selectedVersion.status}`}>{selectedVersion.status}</span>
+              <span className="muted small">{fmtBytes(selectedVersion.bytes)}</span>
             </div>
           )}
-          {vid && (
-            <button type="button" className="ghost" disabled={busy} onClick={() => void verify()}>
-              Verify backup
+          <div className="backup-version-actions">
+            <button
+              type="button"
+              className={panel === "browse" ? "" : "ghost"}
+              disabled={!vid || !canBrowse}
+              onClick={() => setPanel("browse")}
+            >
+              Browse
             </button>
-          )}
-        </section>
-
-        <section className="tile wide-explore">
-          <div className="explore-toolbar">
-            <div className="crumbs">
-              <button type="button" className="ghost crumb" onClick={() => openDir("")}>
-                root
-              </button>
-              {crumbs.map((c, i) => {
-                const full = crumbs.slice(0, i + 1).join("/");
-                return (
-                  <span key={full}>
-                    <span className="muted"> / </span>
-                    <button type="button" className="ghost crumb" onClick={() => openDir(full)}>
-                      {c}
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-            <form className="search" onSubmit={search}>
-              <input
-                placeholder="Search files…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              <button type="submit" className="ghost">
-                Search
-              </button>
-            </form>
+            <button
+              type="button"
+              className={panel === "log" ? "" : "ghost"}
+              disabled={!vid}
+              onClick={() => setPanel("log")}
+            >
+              Log
+            </button>
+            <button type="button" className="ghost" disabled={!vid || busy} onClick={() => void verify()}>
+              Verify
+            </button>
+            <button
+              type="button"
+              className="ghost danger-text"
+              disabled={!vid || busy}
+              onClick={() => {
+                setShowDelete(true);
+                setDeleteConfirm("");
+              }}
+            >
+              Delete
+            </button>
           </div>
-          <p className="muted small">{total ? `${total} entries in backup` : ""}</p>
+        </div>
 
-          <div className="file-table">
-            {entries.length === 0 && <p className="muted">Empty folder or no matches.</p>}
-            {entries.map((e) => (
-              <div className="file-row" key={e.path}>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={!!selected[e.path]}
-                    onChange={() => toggle(e.path)}
-                  />
-                </label>
-                {e.isDir ? (
-                  <button type="button" className="linkish" onClick={() => openDir(e.path)}>
-                    [{e.name || e.path}]
-                  </button>
-                ) : (
-                  <span>
-                    {e.name || e.path}
-                    {e.size != null && <span className="muted small"> · {fmtBytes(e.size)}</span>}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="restore-box">
-            <h2>Restore selected</h2>
-            <p className="muted">
-              {selectedPaths.length} selected. This overwrites matching files on the live server.
+        {showDelete && vid && (
+          <div className="delete-version-box">
+            <p className="muted small">
+              Permanently delete this backup? Incremental backups that depend on it must be
+              removed first.
             </p>
             <label>Type file server name ({server?.name}) to confirm</label>
-            <input value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
             <div className="actions">
               <button
                 type="button"
-                disabled={busy || selectedPaths.length === 0}
-                onClick={() => void download()}
+                className="danger-text"
+                disabled={busy || deleteConfirm !== server?.name}
+                onClick={() => void removeVersion()}
               >
-                {busy ? "Working…" : "Download zip"}
-              </button>
-              <button
-                type="button"
-                disabled={busy || selectedPaths.length === 0 || confirm !== server?.name}
-                onClick={() => void restore()}
-              >
-                {busy ? "Restoring…" : "Restore to live server"}
+                {busy ? "Deleting…" : "Delete backup"}
               </button>
               <button
                 type="button"
                 className="ghost"
-                onClick={() => setSelected({})}
+                disabled={busy}
+                onClick={() => {
+                  setShowDelete(false);
+                  setDeleteConfirm("");
+                }}
               >
-                Clear selection
+                Cancel
               </button>
             </div>
           </div>
-        </section>
-      </div>
+        )}
+
+        {!vid && versions.length === 0 && (
+          <p className="muted">Run a backup from the file servers page to explore files here.</p>
+        )}
+
+        {vid && panel === "log" && (
+          <VersionLogPanel
+            url={`/api/file-servers/${id}/versions/${vid}/logs`}
+            title="Backup log"
+            tall
+          />
+        )}
+
+        {vid && panel === "browse" && canBrowse && (
+          <>
+            <div className="explore-toolbar">
+              <div className="crumbs">
+                <button type="button" className="ghost crumb" onClick={() => openDir("")}>
+                  root
+                </button>
+                {crumbs.map((c, i) => {
+                  const full = crumbs.slice(0, i + 1).join("/");
+                  return (
+                    <span key={full}>
+                      <span className="muted"> / </span>
+                      <button type="button" className="ghost crumb" onClick={() => openDir(full)}>
+                        {c}
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <form className="search" onSubmit={search}>
+                <input
+                  placeholder="Search files…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+                <button type="submit" className="ghost">
+                  Search
+                </button>
+              </form>
+            </div>
+            <p className="muted small">{total ? `${total} entries in backup` : ""}</p>
+
+            <div className="file-table">
+              {entries.length === 0 && <p className="muted">Empty folder or no matches.</p>}
+              {entries.map((e) => (
+                <div className="file-row" key={e.path}>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={!!selected[e.path]}
+                      onChange={() => toggle(e.path)}
+                    />
+                  </label>
+                  {e.isDir ? (
+                    <button type="button" className="linkish" onClick={() => openDir(e.path)}>
+                      [{e.name || e.path}]
+                    </button>
+                  ) : (
+                    <span>
+                      {e.name || e.path}
+                      {e.size != null && <span className="muted small"> · {fmtBytes(e.size)}</span>}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="restore-box">
+              <h2>Restore selected</h2>
+              <p className="muted">
+                {selectedPaths.length} selected. This overwrites matching files on the live server.
+              </p>
+              <label>Type file server name ({server?.name}) to confirm</label>
+              <input value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+              <div className="actions">
+                <button
+                  type="button"
+                  disabled={busy || selectedPaths.length === 0}
+                  onClick={() => void download()}
+                >
+                  {busy ? "Working…" : "Download zip"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || selectedPaths.length === 0 || confirm !== server?.name}
+                  onClick={() => void restore()}
+                >
+                  {busy ? "Restoring…" : "Restore to live server"}
+                </button>
+                <button type="button" className="ghost" onClick={() => setSelected({})}>
+                  Clear selection
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {vid && panel === "browse" && !canBrowse && (
+          <p className="muted">
+            This backup did not complete successfully. Open the <strong>Log</strong> tab for
+            details.
+          </p>
+        )}
+      </section>
       <SiteFooter />
     </div>
   );

@@ -3,6 +3,7 @@ import { api } from "../App";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import DisasterRecovery from "../components/DisasterRecovery";
+import OffsiteSettingsPanel from "../components/OffsiteSettings";
 
 type Settings = {
   mailMode: "local" | "smtp";
@@ -20,11 +21,12 @@ type Settings = {
   alertRestoreFailure: boolean;
 };
 
-type Tab = "account" | "notifications" | "recovery";
+type Tab = "account" | "notifications" | "offsite" | "recovery";
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: "account", label: "Account", hint: "Login password" },
   { id: "notifications", label: "Notifications", hint: "Email alerts" },
+  { id: "offsite", label: "Off-site", hint: "Cloudflare R2 mirror" },
   { id: "recovery", label: "Recovery", hint: "Protect this server" },
 ];
 
@@ -47,7 +49,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("tab");
-    if (p === "account" || p === "notifications" || p === "recovery") {
+    if (p === "account" || p === "notifications" || p === "offsite" || p === "recovery") {
       setTab(p);
     }
   }, []);
@@ -381,6 +383,17 @@ export default function SettingsPage() {
                 </div>
               </form>
             </>
+          )}
+
+          {tab === "offsite" && (
+            <OffsiteSettingsPanel
+              busy={busy}
+              setBusy={setBusy}
+              onFlash={(err, inf) => {
+                setError(err);
+                setInfo(inf);
+              }}
+            />
           )}
 
           {tab === "recovery" && (

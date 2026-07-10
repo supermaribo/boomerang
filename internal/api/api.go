@@ -16,6 +16,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/config"
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/jobs"
+	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -29,6 +30,7 @@ type Server struct {
 	webFS  fs.FS
 	runner *jobs.Runner
 	sched  *jobs.Scheduler
+	offsite *offsite.Syncer
 	mu     sync.Mutex
 	sess   map[string]session
 	loginN map[string][]time.Time
@@ -51,6 +53,14 @@ func New(cfg *config.Config, st *store.Store, box *crypto.Box, webFS fs.FS, runn
 	}
 }
 
+func (s *Server) SetScheduler(sched *jobs.Scheduler) {
+	s.sched = sched
+}
+
+func (s *Server) SetOffsite(syncer *offsite.Syncer) {
+	s.offsite = syncer
+}
+
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -62,6 +72,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/health", s.handleHealth)
 		r.Get("/status", s.handleStatus)
 		r.Post("/setup", s.handleSetup)
+		r.Post("/setup/test-r2", s.handleTestRestoreR2)
+		r.Post("/setup/restore-r2", s.handleRestoreFromR2)
 		r.Post("/login", s.handleLogin)
 		r.Post("/logout", s.handleLogout)
 		r.Group(func(r chi.Router) {
@@ -247,13 +259,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 	recent, _ := s.store.ListRecentVersions(15, "")
 	jobs, _ := s.store.ListRecentJobs(10)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"fileServers":    fsCount,
-		"databases":      dbCount,
-		"backupCount":    backupCount,
-		"storageBytes":   storageBytes,
-		"dataDir":        s.cfg.DataDir,
-		"recentBackups":  recent,
-		"recentJobs":     jobs,
+		"fileServers":      fsCount,
+		"databases":        dbCount,
+		"backupCount":      backupCount,
+		"storageBytes":     storageBytes,
+		"dataDir":          s.cfg.DataDir,
+		"recentBackups":    recent,
+		"recentJobs":       jobs,
+		"applianceStatus":  s.applianceStatus(),
 	})
 }
 

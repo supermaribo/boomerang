@@ -16,6 +16,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/filebackup"
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/notify"
+	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/remote"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ type Runner struct {
 	Store   *store.Store
 	Box     *crypto.Box
 	DataDir string
+	Offsite *offsite.Syncer
 	mu      sync.Mutex
 	running int
 	max     int
@@ -249,9 +251,9 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	}
 	log(fmt.Sprintf("summary: %d files backed up, %d bytes, kind=%s", res.Files, res.Bytes, res.Manifest.Kind))
 	if skipped, _ := backup.ReadSkippedLog(outDir); len(skipped) > 0 {
-		log(fmt.Sprintf("summary: %d path(s) missed — listed in skipped.log", len(skipped)))
+		log(fmt.Sprintf("summary: %d path(s) could not be read on the remote", len(skipped)))
 	} else {
-		log("summary: no skipped paths recorded")
+		log("summary: no missed paths recorded")
 	}
 	log(fmt.Sprintf("finished: %s", time.Now().UTC().Format(time.RFC3339)))
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
@@ -264,6 +266,7 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 		Monthly: fs.RetainMonthly, Yearly: fs.RetainYearly,
 		Count: fs.RetainCount, Days: fs.RetainDays,
 	})
+	r.scheduleOffsite()
 }
 
 func (r *Runner) runFileRestore(jobID, fileServerID, versionID string, paths []string) {
@@ -452,6 +455,7 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 		Monthly: db.RetainMonthly, Yearly: db.RetainYearly,
 		Count: db.RetainCount, Days: db.RetainDays,
 	})
+	r.scheduleOffsite()
 }
 
 func (r *Runner) encryptSQL(outDir string) error {
@@ -540,4 +544,10 @@ func truncateJobMessage(msg string) string {
 		return msg
 	}
 	return msg[:max] + "… (truncated)"
+}
+
+func (r *Runner) scheduleOffsite() {
+	if r.Offsite != nil {
+		r.Offsite.Schedule()
+	}
 }

@@ -11,6 +11,38 @@ import (
 const VersionLogFile = "backup.log"
 const SkippedLogFile = "skipped.log"
 
+// DefaultSkippedLogInline is how many missed paths to write into backup.log.
+const DefaultSkippedLogInline = 250
+
+// SkippedLogLines formats missed paths for human-readable backup logs.
+func SkippedLogLines(paths []string, maxShow int) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	if maxShow <= 0 {
+		maxShow = DefaultSkippedLogInline
+	}
+	lines := []string{fmt.Sprintf("--- missed paths (%d) ---", len(paths))}
+	for i, p := range paths {
+		if i >= maxShow {
+			lines = append(lines, fmt.Sprintf("... and %d more not shown", len(paths)-maxShow))
+			break
+		}
+		lines = append(lines, "missed: "+p)
+	}
+	return lines
+}
+
+// LogHasMissedPaths reports whether lines already include a missed-path section.
+func LogHasMissedPaths(lines []string) bool {
+	for _, line := range lines {
+		if strings.HasPrefix(line, "--- missed paths") || strings.HasPrefix(line, "missed: ") {
+			return true
+		}
+	}
+	return false
+}
+
 // VersionLogger appends timestamped lines to backup.log in a version directory.
 type VersionLogger struct {
 	f *os.File

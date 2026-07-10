@@ -9,17 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/notify"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
-
-func (s *Server) SetScheduler(sched *jobs.Scheduler) {
-	s.sched = sched
-}
 
 func (s *Server) routesExtra(r chi.Router) {
 	r.Get("/backups/recent", s.handleRecentBackups)
@@ -29,6 +24,10 @@ func (s *Server) routesExtra(r chi.Router) {
 	r.Post("/settings/test-email", s.handleTestEmail)
 	r.Post("/settings/password", s.handleChangePassword)
 	r.Get("/appliance", s.handleGetAppliance)
+	r.Get("/offsite", s.handleGetOffsite)
+	r.Put("/offsite", s.handlePutOffsite)
+	r.Post("/offsite/test", s.handleTestOffsite)
+	r.Post("/offsite/sync", s.handleSyncOffsite)
 	r.Get("/databases/{id}/versions/{vid}/logs", s.handleDBVersionLogs)
 	r.Post("/databases/{id}/versions/{vid}/restore", s.handleRestoreDatabase)
 	r.Get("/databases/{id}/versions/{vid}", s.handleGetDBVersion)
@@ -389,5 +388,6 @@ func (s *Server) handleDeleteDBVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit("db_version_delete", dbID+":"+vid)
+	s.scheduleOffsiteMirror()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
