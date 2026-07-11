@@ -13,16 +13,14 @@ import (
 
 	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/pathutil"
-	setupauth "github.com/boomerang-backup/boomerang/internal/setup"
 )
 
 type restoreR2Req struct {
-	SetupToken string `json:"setupToken"`
-	AccountID  string `json:"accountId"`
-	Bucket     string `json:"bucket"`
-	Prefix     string `json:"prefix"`
-	AccessKey  string `json:"accessKey"`
-	SecretKey  string `json:"secretKey"`
+	AccountID string `json:"accountId"`
+	Bucket    string `json:"bucket"`
+	Prefix    string `json:"prefix"`
+	AccessKey string `json:"accessKey"`
+	SecretKey string `json:"secretKey"`
 }
 
 func (s *Server) handleTestRestoreR2(w http.ResponseWriter, r *http.Request) {
@@ -34,13 +32,9 @@ func (s *Server) handleTestRestoreR2(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusTooManyRequests, "too many setup attempts")
 		return
 	}
-	cfg, token, err := restoreConfigFromBody(r)
+	cfg, err := restoreConfigFromBody(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if !setupauth.ValidateToken(s.cfg.DataDir, token) {
-		writeErr(w, http.StatusUnauthorized, "invalid setup token")
 		return
 	}
 	if err := offsite.TestConnection(cfg); err != nil {
@@ -59,13 +53,9 @@ func (s *Server) handleRestoreFromR2(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusTooManyRequests, "too many setup attempts")
 		return
 	}
-	cfg, token, err := restoreConfigFromBody(r)
+	cfg, err := restoreConfigFromBody(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if !setupauth.ValidateToken(s.cfg.DataDir, token) {
-		writeErr(w, http.StatusUnauthorized, "invalid setup token")
 		return
 	}
 	if err := offsite.TestConnection(cfg); err != nil {
@@ -105,7 +95,6 @@ func (s *Server) handleRestoreFromR2(w http.ResponseWriter, r *http.Request) {
 		go exitSoon(1)
 		return
 	}
-	setupauth.ClearToken(s.cfg.DataDir)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":              true,
@@ -131,14 +120,10 @@ func (s *Server) guardFreshInstall() error {
 	return nil
 }
 
-func restoreConfigFromBody(r *http.Request) (offsite.Config, string, error) {
+func restoreConfigFromBody(r *http.Request) (offsite.Config, error) {
 	var req restoreR2Req
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return offsite.Config{}, "", fmt.Errorf("invalid json")
-	}
-	token := strings.TrimSpace(req.SetupToken)
-	if token == "" {
-		return offsite.Config{}, "", fmt.Errorf("setup token is required")
+		return offsite.Config{}, fmt.Errorf("invalid json")
 	}
 	cfg := offsite.Config{
 		AccountID: strings.TrimSpace(req.AccountID),
@@ -148,9 +133,9 @@ func restoreConfigFromBody(r *http.Request) (offsite.Config, string, error) {
 		SecretKey: strings.TrimSpace(req.SecretKey),
 	}
 	if cfg.AccountID == "" || cfg.Bucket == "" || cfg.AccessKey == "" || cfg.SecretKey == "" {
-		return offsite.Config{}, "", fmt.Errorf("account ID, bucket, access key, and secret key are required")
+		return offsite.Config{}, fmt.Errorf("account ID, bucket, access key, and secret key are required")
 	}
-	return cfg, token, nil
+	return cfg, nil
 }
 
 func copyTree(src, dst string) error {

@@ -42,4 +42,4 @@ You can also [request the script](https://github.com/community-scripts/ProxmoxVE
 | Disk | 20 GB+ |
 | Network | DHCP on your backup VLAN |
 
-After creation, open `http://<ct-ip>:8080` and enter the setup token from the container MOTD.
+After creation, open `http://<ct-ip>:8080` and set your admin password.

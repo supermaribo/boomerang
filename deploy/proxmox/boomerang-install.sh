@@ -46,14 +46,6 @@ install -d -m 700 -o boomerang -g boomerang \
   "$DATA_DIR" \
   "$DATA_DIR/secrets" \
   "$DATA_DIR/backups"
-
-SETUP_TOKEN=""
-if [[ ! -f "$DATA_DIR/app.db" ]]; then
-  SETUP_TOKEN="$(openssl rand -hex 16)"
-  printf '%s\n' "$SETUP_TOKEN" >"$DATA_DIR/secrets/setup.token"
-  chmod 600 "$DATA_DIR/secrets/setup.token"
-  chown boomerang:boomerang "$DATA_DIR/secrets/setup.token"
-fi
 msg_ok "Prepared data directories"
 
 msg_info "Downloading Boomerang release"
@@ -97,15 +89,5 @@ fi
 
 motd_ssh
 customize
-
-if [[ -n "$SETUP_TOKEN" ]]; then
-  CT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  {
-    echo ""
-    echo "Boomerang setup token (first visit): $SETUP_TOKEN"
-    echo "UI: http://${CT_IP:-localhost}:8080"
-    echo ""
-  } >>/etc/motd
-fi
 
 cleanup_lxc

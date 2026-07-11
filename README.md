@@ -82,7 +82,7 @@ Pick the method that matches your host. All native installs use the same `instal
 | **LXC (Proxmox)** | Home lab — one-liner creates the CT | Yes |
 | **Docker** | Quick tests, non-systemd hosts | No — rebuild the image |
 
-After install, open **`http://YOUR_SERVER_IP:8080`**, enter the setup token on first visit, set your admin password, add targets, and run a backup.
+After install, open **`http://YOUR_SERVER_IP:8080`**, set your admin password on first visit, add targets, and run a backup.
 
 > 🔒 Keep port **8080** on your LAN only. Boomerang is HTTP + single password — use a reverse proxy with TLS if exposing beyond your network.
 
@@ -154,7 +154,6 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/ma
 Uses the [community-scripts](https://community-scripts.org) LXC wizard, downloads the latest [GitHub release](https://github.com/supermaribo/boomerang/releases), and starts systemd. When finished:
 
 - UI: `http://<container-ip>:8080`
-- Setup token: container MOTD, or `pct exec <CTID> -- cat /var/lib/boomerang/secrets/setup.token`
 
 To list Boomerang on [community-scripts.org](https://community-scripts.org), see [`deploy/proxmox/CONTRIBUTING.md`](deploy/proxmox/CONTRIBUTING.md).
 
@@ -302,7 +301,7 @@ sudo ./install.sh --from-release
 
 ## 👋 First-time setup
 
-1. Open the UI and enter the **setup token** from `install.sh` output or `journalctl -u boomerang` (first boot only), then create the admin password (minimum 8 characters).
+1. Open the UI and create the admin password (minimum 8 characters).
 2. **Settings → Notifications** — your email, which alerts to send, send a test email.
 3. Add a **website** (SFTP/RSYNC/FTP) and/or **database** target.
 4. On remote hosts, allow **only this appliance's IP** in the firewall (shown in the setup wizard).

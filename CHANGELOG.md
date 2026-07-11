@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.7
+
+- Remove first-boot setup token — open the UI and set your admin password directly (LAN appliance).
+
 ## v0.1.6
 
 - Buffer file ZIP and database SQL downloads before sending headers (no more corrupt downloads on error).

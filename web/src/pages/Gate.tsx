@@ -20,7 +20,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
   const [accessKey, setAccessKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [restoreInfo, setRestoreInfo] = useState("");
-  const [setupToken, setSetupToken] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -42,7 +41,7 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
     try {
       await api("/api/setup", {
         method: "POST",
-        body: JSON.stringify({ password, setupToken }),
+        body: JSON.stringify({ password }),
       });
       await onDone();
     } catch (err) {
@@ -66,7 +65,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
       }>("/api/setup/restore-r2", {
         method: "POST",
         body: JSON.stringify({
-          setupToken,
           accountId,
           bucket,
           prefix: prefix || "boomerang",
@@ -106,7 +104,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
       await api("/api/setup/test-r2", {
         method: "POST",
         body: JSON.stringify({
-          setupToken,
           accountId,
           bucket,
           prefix: prefix || "boomerang",
@@ -178,7 +175,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
             </>
           ) : (
             <>
-
           {setupRequired && (
             <>
               <div className="segmented gate-mode">
@@ -208,9 +204,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
               <aside className="callout warn setup-security" role="note">
                 <strong>Internal use only.</strong> Keep port <code>8080</code> on your LAN or VPN
                 only — no public internet exposure.
-                <br />
-                Enter the <strong>setup token</strong> printed by <code>install.sh</code> or{" "}
-                <code>journalctl -u boomerang</code> on first boot.
               </aside>
             </>
           )}
@@ -226,15 +219,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
 
           {setupRequired && mode === "restore" ? (
             <>
-              <label htmlFor="setupToken">Setup token</label>
-              <input
-                id="setupToken"
-                value={setupToken}
-                onChange={(e) => setSetupToken(e.target.value)}
-                required
-                autoComplete="off"
-                placeholder="from install output or journalctl"
-              />
               <label htmlFor="accountId">Cloudflare account ID</label>
               <input
                 id="accountId"
@@ -287,19 +271,6 @@ export default function Gate({ setupRequired, statusError, onDone }: Props) {
             </>
           ) : (
             <>
-              {setupRequired && (
-                <>
-                  <label htmlFor="setupToken">Setup token</label>
-                  <input
-                    id="setupToken"
-                    value={setupToken}
-                    onChange={(e) => setSetupToken(e.target.value)}
-                    required
-                    autoComplete="off"
-                    placeholder="from install output or journalctl"
-                  />
-                </>
-              )}
               <label htmlFor="password">Password</label>
               <input
                 id="password"

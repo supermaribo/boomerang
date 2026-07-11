@@ -17,7 +17,6 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
-	setupauth "github.com/boomerang-backup/boomerang/internal/setup"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/boomerang-backup/boomerang/internal/tzutil"
 	"github.com/go-chi/chi/v5"
@@ -143,15 +142,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"setupRequired":       !setup,
-		"setupTokenRequired":  !setup,
-		"product":             "Boomerang",
+		"setupRequired": !setup,
+		"product":       "Boomerang",
 	})
 }
 
 type setupReq struct {
-	Password   string `json:"password"`
-	SetupToken string `json:"setupToken"`
+	Password string `json:"password"`
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -177,10 +174,6 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
-	if !setupauth.ValidateToken(s.cfg.DataDir, req.SetupToken) {
-		writeErr(w, http.StatusUnauthorized, "invalid setup token")
-		return
-	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "hash failed")
@@ -191,7 +184,6 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit("setup", "admin password created")
-	setupauth.ClearToken(s.cfg.DataDir)
 	token, err := s.createSession()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "session failed")
@@ -457,11 +449,11 @@ function view(html){document.getElementById('app').innerHTML=html}
 async function boot(){
   const st=await status();
   if(st.setupRequired){
-    view('<h1>Boomerang</h1><p>First-run setup — choose an admin password.</p><div class="err" id="e"></div><label>Setup token</label><input id="t" autocomplete="off" placeholder="from install output or secrets/setup.token"/><label>Password</label><input id="p" type="password" autocomplete="new-password"/><label>Confirm</label><input id="c" type="password"/><button id="b">Create admin</button>');
+    view('<h1>Boomerang</h1><p>First-run setup — choose an admin password.</p><div class="err" id="e"></div><label>Password</label><input id="p" type="password" autocomplete="new-password"/><label>Confirm</label><input id="c" type="password"/><button id="b">Create admin</button>');
     document.getElementById('b').onclick=async()=>{
-      const p=document.getElementById('p').value,c=document.getElementById('c').value,t=document.getElementById('t').value;
+      const p=document.getElementById('p').value,c=document.getElementById('c').value;
       if(p!==c){document.getElementById('e').textContent='Passwords do not match';return}
-      const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p,setupToken:t})});
+      const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
       const j=await r.json(); if(!r.ok){document.getElementById('e').textContent=j.error||'failed';return} location.href='/';
     };
   } else {
