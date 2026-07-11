@@ -109,11 +109,27 @@ download_release() {
   mkdir -p "$ROOT/dist"
   echo "==> Downloading ${asset} (${tag})"
   echo "    ${url}"
-  if ! curl -fsSL --retry 3 --retry-delay 2 -o "$ROOT/dist/boomerang" "$url"; then
-    echo "Failed to download release asset." >&2
-    echo "Check that tag exists and asset ${asset} is attached to the GitHub release." >&2
+  max_wait=180
+  interval=10
+  elapsed=0
+  while true; do
+    http_code="$(curl -sSL -o "$ROOT/dist/boomerang" -w "%{http_code}" "$url" || true)"
+    if [[ "$http_code" == "200" ]]; then
+      break
+    fi
+    if [[ "$http_code" == "404" && "$elapsed" -lt "$max_wait" ]]; then
+      echo "    Release asset not ready yet (GitHub Actions may still be building). Retrying in ${interval}s…"
+      sleep "$interval"
+      elapsed=$((elapsed + interval))
+      continue
+    fi
+    rm -f "$ROOT/dist/boomerang"
+    echo "Failed to download release asset (HTTP ${http_code:-unknown})." >&2
+    if [[ "$tag" != "latest" ]]; then
+      echo "New tags take 1–2 minutes to publish binaries. Wait and retry, or use --from-release without a tag." >&2
+    fi
     exit 1
-  fi
+  done
   chmod 755 "$ROOT/dist/boomerang"
   BINARY="$ROOT/dist/boomerang"
 }

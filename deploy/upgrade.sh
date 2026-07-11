@@ -37,7 +37,29 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 echo "==> Downloading ${asset} (${label})"
 echo "    ${url}"
-curl -fsSL --retry 3 --retry-delay 2 -o "${tmpdir}/boomerang" "$url"
+
+max_wait=180
+interval=10
+elapsed=0
+while true; do
+  http_code="$(curl -sSL -o "${tmpdir}/boomerang" -w "%{http_code}" "$url" || true)"
+  if [[ "$http_code" == "200" ]]; then
+    break
+  fi
+  if [[ "$http_code" == "404" && "$elapsed" -lt "$max_wait" ]]; then
+    echo "    Release asset not ready yet (GitHub Actions may still be building). Retrying in ${interval}s…"
+    sleep "$interval"
+    elapsed=$((elapsed + interval))
+    continue
+  fi
+  rm -f "${tmpdir}/boomerang"
+  echo "Failed to download release asset (HTTP ${http_code:-unknown})." >&2
+  if [[ "$RELEASE_TAG" != "latest" ]]; then
+    echo "New tags take 1–2 minutes to publish binaries. Wait and retry, or run without a tag for latest:" >&2
+    echo "  curl -fsSL ${RAW_BASE}/deploy/upgrade.sh | sudo bash" >&2
+  fi
+  exit 1
+done
 chmod 755 "${tmpdir}/boomerang"
 
 echo "==> Refreshing update helper and systemd unit"
