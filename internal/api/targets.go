@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/mysqlbackup"
 	"github.com/boomerang-backup/boomerang/internal/remote"
 	"github.com/boomerang-backup/boomerang/internal/schedule"
@@ -26,8 +27,10 @@ func (s *Server) routesTargets(r chi.Router) {
 	r.Delete("/file-servers/{id}", s.handleDeleteFileServer)
 	r.Post("/file-servers/test", s.handleTestFileServer)
 	r.Post("/file-servers/browse", s.handleBrowseFileServer)
+	r.Post("/file-servers/validate-paths", s.handleValidateFileServerPaths)
 	r.Post("/file-servers/{id}/test", s.handleTestFileServerByID)
 	r.Post("/file-servers/{id}/browse", s.handleBrowseFileServerByID)
+	r.Post("/file-servers/{id}/validate-paths", s.handleValidateFileServerPathsByID)
 	r.Post("/file-servers/{id}/backup", s.handleBackupFileServer)
 	r.Post("/file-servers/backup-all", s.handleBackupAllFileServers)
 	r.Get("/file-servers/{id}/versions", s.handleListFileVersions)
@@ -78,6 +81,7 @@ type fileServerDTO struct {
 	RetainMonthly int      `json:"retainMonthly"`
 	RetainYearly         int      `json:"retainYearly"`
 	IncrementalEnabled   bool     `json:"incrementalEnabled"`
+	SkipIfUnchanged      bool     `json:"skipIfUnchanged"`
 	Enabled              bool     `json:"enabled"`
 	HasSecret     bool     `json:"hasSecret"`
 	PublicKey     string   `json:"publicKey,omitempty"`
@@ -109,6 +113,7 @@ type fileServerWrite struct {
 	RetainMonthly int      `json:"retainMonthly"`
 	RetainYearly       int      `json:"retainYearly"`
 	IncrementalEnabled *bool    `json:"incrementalEnabled"`
+	SkipIfUnchanged    *bool    `json:"skipIfUnchanged"`
 	Enabled            *bool    `json:"enabled"`
 }
 
@@ -135,6 +140,7 @@ type databaseDTO struct {
 	RetainWeekly  int     `json:"retainWeekly"`
 	RetainMonthly int     `json:"retainMonthly"`
 	RetainYearly  int     `json:"retainYearly"`
+	SkipIfUnchanged bool  `json:"skipIfUnchanged"`
 	Enabled       bool    `json:"enabled"`
 	HasMysqlPass  bool    `json:"hasMysqlPassword"`
 	HasSSHSecret  bool    `json:"hasSshSecret"`
@@ -166,6 +172,7 @@ type databaseWrite struct {
 	RetainWeekly  int     `json:"retainWeekly"`
 	RetainMonthly int     `json:"retainMonthly"`
 	RetainYearly  int     `json:"retainYearly"`
+	SkipIfUnchanged *bool `json:"skipIfUnchanged"`
 	Enabled       *bool   `json:"enabled"`
 }
 
@@ -177,7 +184,7 @@ func toFileDTO(f store.FileServer) fileServerDTO {
 		RetainCount: f.RetainCount, RetainDays: f.RetainDays,
 		RetainHourly: f.RetainHourly, RetainDaily: f.RetainDaily,
 		RetainWeekly: f.RetainWeekly, RetainMonthly: f.RetainMonthly, RetainYearly: f.RetainYearly,
-		IncrementalEnabled: f.IncrementalEnabled, Enabled: f.Enabled, HasSecret: len(f.EncSecret) > 0, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
+		IncrementalEnabled: f.IncrementalEnabled, SkipIfUnchanged: f.SkipIfUnchanged, Enabled: f.Enabled, HasSecret: len(f.EncSecret) > 0, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
 	}
 }
 
@@ -228,7 +235,7 @@ func toDBDTO(d store.Database) databaseDTO {
 		RetainCount: d.RetainCount, RetainDays: d.RetainDays,
 		RetainHourly: d.RetainHourly, RetainDaily: d.RetainDaily,
 		RetainWeekly: d.RetainWeekly, RetainMonthly: d.RetainMonthly, RetainYearly: d.RetainYearly,
-		Enabled: d.Enabled,
+		SkipIfUnchanged: d.SkipIfUnchanged, Enabled: d.Enabled,
 		HasMysqlPass: len(d.EncMysqlPassword) > 0, HasSSHSecret: len(d.EncSSHSecret) > 0,
 	}
 }
@@ -406,6 +413,10 @@ func (s *Server) buildFileServer(id string, req fileServerWrite, requireSecret b
 	if req.IncrementalEnabled != nil {
 		incremental = *req.IncrementalEnabled
 	}
+	skipUnchanged := false
+	if req.SkipIfUnchanged != nil {
+		skipUnchanged = *req.SkipIfUnchanged
+	}
 	if proto == "rsync" {
 		incremental = false
 	}
@@ -419,7 +430,7 @@ func (s *Server) buildFileServer(id string, req fileServerWrite, requireSecret b
 		RetainCount: req.RetainCount, RetainDays: req.RetainDays,
 		RetainHourly: req.RetainHourly, RetainDaily: req.RetainDaily,
 		RetainWeekly: req.RetainWeekly, RetainMonthly: req.RetainMonthly, RetainYearly: req.RetainYearly,
-		IncrementalEnabled: incremental, Enabled: enabled,
+		IncrementalEnabled: incremental, SkipIfUnchanged: skipUnchanged, Enabled: enabled,
 	}
 	secret := remote.AuthSecret{
 		Password: req.Password, PrivateKey: req.PrivateKey, Passphrase: req.Passphrase, PublicKey: req.PublicKey,
@@ -529,6 +540,63 @@ func (s *Server) handleBrowseFileServerByID(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, res)
 }
 
+type validatePathsReq struct {
+	fileServerWrite
+	Paths []string `json:"paths"`
+}
+
+func (s *Server) handleValidateFileServerPaths(w http.ResponseWriter, r *http.Request) {
+	var req validatePathsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	secret := remote.AuthSecret{Password: req.Password, PrivateKey: req.PrivateKey, Passphrase: req.Passphrase}
+	warnings, err := remote.CheckPathsAccess(remote.FileTarget{
+		Protocol: strings.ToLower(req.Protocol), Host: req.Host, Port: req.Port,
+		Username: req.Username, AuthMode: req.AuthMode, Secret: secret,
+	}, req.Paths)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"warnings": warnings})
+}
+
+func (s *Server) handleValidateFileServerPathsByID(w http.ResponseWriter, r *http.Request) {
+	f, err := s.store.GetFileServer(chi.URLParam(r, "id"))
+	if err != nil || f == nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	plain, err := s.box.Open(f.EncSecret)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "decrypt secret failed")
+		return
+	}
+	secret, err := remote.UnmarshalSecret(plain)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "secret corrupt")
+		return
+	}
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	warnings, err := remote.CheckPathsAccess(remote.FileTarget{
+		Protocol: f.Protocol, Host: f.Host, Port: f.Port, Username: f.Username,
+		AuthMode: f.AuthMode, Secret: secret, SSHHostKey: f.SSHHostKey,
+	}, req.Paths)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"warnings": warnings})
+}
+
 func (s *Server) handleTestFileServerByID(w http.ResponseWriter, r *http.Request) {
 	f, err := s.store.GetFileServer(chi.URLParam(r, "id"))
 	if err != nil || f == nil {
@@ -562,7 +630,7 @@ func (s *Server) handleBackupFileServer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	id := chi.URLParam(r, "id")
-	jobID, err := s.runner.StartFileBackup(id)
+	jobID, err := s.runner.StartFileBackup(id, jobs.BackupOpts{})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -592,7 +660,7 @@ func (s *Server) handleBackupAllFileServers(w http.ResponseWriter, _ *http.Reque
 		if !f.Enabled {
 			continue
 		}
-		jobID, err := s.runner.StartFileBackup(f.ID)
+		jobID, err := s.runner.StartFileBackup(f.ID, jobs.BackupOpts{})
 		ref := jobRef{TargetID: f.ID, TargetName: f.Name, JobID: jobID}
 		if err != nil {
 			ref.Error = err.Error()
@@ -625,12 +693,67 @@ func (s *Server) handleBackupAllDatabases(w http.ResponseWriter, _ *http.Request
 		if !d.Enabled {
 			continue
 		}
-		jobID, err := s.runner.StartDBBackup(d.ID)
+		jobID, err := s.runner.StartDBBackup(d.ID, jobs.BackupOpts{})
 		ref := jobRef{TargetID: d.ID, TargetName: d.Name, JobID: jobID}
 		if err != nil {
 			ref.Error = err.Error()
 		} else {
 			_ = s.store.Audit("db_backup", d.ID)
+		}
+		started = append(started, ref)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"jobs": started})
+}
+
+func (s *Server) handleGlobalFullBackup(w http.ResponseWriter, _ *http.Request) {
+	if s.runner == nil {
+		writeErr(w, http.StatusServiceUnavailable, "backup runner unavailable")
+		return
+	}
+	opts := jobs.BackupOpts{ForceFull: true}
+	type jobRef struct {
+		TargetType string `json:"targetType"`
+		TargetID   string `json:"targetId"`
+		TargetName string `json:"targetName"`
+		JobID      string `json:"jobId"`
+		Error      string `json:"error,omitempty"`
+	}
+	var started []jobRef
+
+	files, err := s.store.ListFileServers()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, f := range files {
+		if !f.Enabled {
+			continue
+		}
+		jobID, err := s.runner.StartFileBackup(f.ID, opts)
+		ref := jobRef{TargetType: "file", TargetID: f.ID, TargetName: f.Name, JobID: jobID}
+		if err != nil {
+			ref.Error = err.Error()
+		} else {
+			_ = s.store.Audit("file_backup_full", f.ID)
+		}
+		started = append(started, ref)
+	}
+
+	dbs, err := s.store.ListDatabases()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, d := range dbs {
+		if !d.Enabled {
+			continue
+		}
+		jobID, err := s.runner.StartDBBackup(d.ID, opts)
+		ref := jobRef{TargetType: "db", TargetID: d.ID, TargetName: d.Name, JobID: jobID}
+		if err != nil {
+			ref.Error = err.Error()
+		} else {
+			_ = s.store.Audit("db_backup_full", d.ID)
 		}
 		started = append(started, ref)
 	}
@@ -848,6 +971,10 @@ func (s *Server) buildDatabase(id string, req databaseWrite, requireSecret bool)
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	skipUnchanged := false
+	if req.SkipIfUnchanged != nil {
+		skipUnchanged = *req.SkipIfUnchanged
+	}
 	if id == "" {
 		id = uuid.NewString()
 	}
@@ -858,7 +985,7 @@ func (s *Server) buildDatabase(id string, req databaseWrite, requireSecret bool)
 		RetainCount: req.RetainCount, RetainDays: req.RetainDays,
 		RetainHourly: req.RetainHourly, RetainDaily: req.RetainDaily,
 		RetainWeekly: req.RetainWeekly, RetainMonthly: req.RetainMonthly, RetainYearly: req.RetainYearly,
-		Enabled: enabled,
+		SkipIfUnchanged: skipUnchanged, Enabled: enabled,
 	}
 	if req.FileServerID != nil && *req.FileServerID != "" {
 		d.FileServerID = sql.NullString{String: *req.FileServerID, Valid: true}

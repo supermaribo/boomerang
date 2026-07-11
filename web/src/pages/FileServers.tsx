@@ -31,6 +31,7 @@ export type FileServer = {
   retainMonthly: number;
   retainYearly: number;
   incrementalEnabled: boolean;
+  skipIfUnchanged: boolean;
   enabled: boolean;
   hasSecret: boolean;
   publicKey?: string;
@@ -211,6 +212,7 @@ export default function FileServers() {
                     ) : (
                       <span> · {f.incrementalEnabled !== false ? "incremental" : "full only"}</span>
                     )}
+                    {f.skipIfUnchanged && <span> · skip if unchanged</span>}
                   </div>
                 </div>
                 <div className="list-actions">

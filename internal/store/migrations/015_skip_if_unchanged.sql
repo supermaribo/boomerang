@@ -1,0 +1,2 @@
+ALTER TABLE file_servers ADD COLUMN skip_if_unchanged INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE databases ADD COLUMN skip_if_unchanged INTEGER NOT NULL DEFAULT 0;

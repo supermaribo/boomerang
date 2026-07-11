@@ -258,14 +258,20 @@ func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
 	r.notifyJob(jobID, false, "")
 }
 
-func (r *Runner) StartFileBackup(fileServerID string) (string, error) {
+// BackupOpts controls one-off backup runs.
+type BackupOpts struct {
+	ForceFull bool
+}
+
+func (r *Runner) StartFileBackup(fileServerID string, opts BackupOpts) (string, error) {
 	jobID := uuid.NewString()
 	versionID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "file", fileServerID, "backup"); err != nil {
 		return "", err
 	}
+	forceFull := opts.ForceFull
 	r.submit("file", fileServerID, jobID, func() {
-		r.runFileBackup(jobID, versionID, fileServerID)
+		r.runFileBackup(jobID, versionID, fileServerID, forceFull)
 	})
 	return jobID, nil
 }
@@ -281,14 +287,15 @@ func (r *Runner) StartFileRestore(fileServerID, versionID string, paths []string
 	return jobID, nil
 }
 
-func (r *Runner) StartDBBackup(databaseID string) (string, error) {
+func (r *Runner) StartDBBackup(databaseID string, opts BackupOpts) (string, error) {
 	jobID := uuid.NewString()
 	versionID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "db", databaseID, "backup"); err != nil {
 		return "", err
 	}
+	forceFull := opts.ForceFull
 	r.submit("db", databaseID, jobID, func() {
-		r.runDBBackup(jobID, versionID, databaseID)
+		r.runDBBackup(jobID, versionID, databaseID, forceFull)
 	})
 	return jobID, nil
 }
@@ -304,10 +311,13 @@ func (r *Runner) StartDBRestore(databaseID, versionID string, tables []string) (
 	return jobID, nil
 }
 
-func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
+func (r *Runner) runFileBackup(jobID, versionID, fileServerID string, forceFull bool) {
 	sink := newJobLogSink(r.Store, jobID)
 	defer sink.flush()
 	sink.log("starting file backup")
+	if forceFull {
+		sink.log("mode: forced full backup (incremental and skip-if-unchanged disabled)")
+	}
 
 	fs, err := r.Store.GetFileServer(fileServerID)
 	if err != nil || fs == nil {
@@ -329,7 +339,7 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 	}
 
 	opt := filebackup.Options{Box: r.Box, ExcludePaths: fs.ExcludePaths}
-	if fs.IncrementalEnabled && fs.Protocol != "rsync" {
+	if !forceFull && ((fs.IncrementalEnabled && fs.Protocol != "rsync") || fs.SkipIfUnchanged) {
 		if prev, _ := r.Store.LastSucceededVersion("file", fileServerID); prev != nil {
 			if m, err := backup.ReadFileManifest(prev.PathOnDisk); err == nil {
 				opt.BaseManifest = m
@@ -370,6 +380,21 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string) {
 		r.fail(jobID, err.Error())
 		return
 	}
+
+	skipped := res.Skipped
+	if !forceFull && !skipped && fs.SkipIfUnchanged {
+		if prev, _ := r.Store.LastSucceededVersion("file", fileServerID); prev != nil {
+			if ok, err := backup.FileBackupUnchanged(&res.Manifest, res.Files, res.Bytes, prev.PathOnDisk); err == nil && ok {
+				skipped = true
+			}
+		}
+	}
+	if skipped {
+		log("skipped: no changes since last successful backup")
+		r.finishSkippedBackup(jobID, versionID, outDir, sink)
+		return
+	}
+
 	log(fmt.Sprintf("summary: %d files backed up, %d bytes, kind=%s", res.Files, res.Bytes, res.Manifest.Kind))
 	if skipped, _ := backup.ReadSkippedLog(outDir); len(skipped) > 0 {
 		log(fmt.Sprintf("summary: %d path(s) could not be read on the remote", len(skipped)))
@@ -519,10 +544,13 @@ func (r *Runner) mysqlTarget(db *store.Database) (mysqlbackup.Target, error) {
 	return t, nil
 }
 
-func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
+func (r *Runner) runDBBackup(jobID, versionID, databaseID string, forceFull bool) {
 	sink := newJobLogSink(r.Store, jobID)
 	defer sink.flush()
 	sink.log("starting database backup")
+	if forceFull {
+		sink.log("mode: forced full backup (skip-if-unchanged disabled)")
+	}
 
 	db, err := r.Store.GetDatabase(databaseID)
 	if err != nil || db == nil {
@@ -564,6 +592,18 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 	log(fmt.Sprintf("target: %s (%s@%s/%s)", db.Name, db.MysqlUser, db.MysqlHost, db.MysqlDB))
 	log(fmt.Sprintf("started: %s", time.Now().UTC().Format(time.RFC3339)))
 
+	if !forceFull && db.SkipIfUnchanged {
+		if prev, _ := r.Store.LastSucceededVersion("db", databaseID); prev != nil {
+			if ok, err := mysqlbackup.UnchangedSince(t, prev.PathOnDisk, log); err != nil {
+				log(fmt.Sprintf("warning: skip check: %v", err))
+			} else if ok {
+				log("skipped: database unchanged since last successful backup")
+				r.finishSkippedBackup(jobID, versionID, outDir, sink)
+				return
+			}
+		}
+	}
+
 	res, err := mysqlbackup.Backup(t, outDir, log)
 	if r.checkCancelled(jobID) {
 		_ = r.Store.UpdateVersion(versionID, "failed", 0)
@@ -597,6 +637,13 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string) {
 		Count: db.RetainCount, Days: db.RetainDays,
 	})
 	r.scheduleOffsite()
+}
+
+func (r *Runner) finishSkippedBackup(jobID, versionID, outDir string, sink *jobLogSink) {
+	_ = r.Store.DiscardVersion(versionID)
+	now := time.Now().UTC()
+	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
+	sink.log("backup skipped — no changes detected")
 }
 
 func (r *Runner) encryptSQL(outDir string) error {

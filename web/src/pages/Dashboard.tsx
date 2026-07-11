@@ -146,19 +146,24 @@ export default function Dashboard({ onLogout }: Props) {
   }, []);
 
   const websiteCount = data?.websites ?? data?.fileServers;
+  const databaseCount = data?.databases ?? 0;
+  const hasTargets = (websiteCount ?? 0) > 0 || databaseCount > 0;
 
-  const backupAllWebsites = async () => {
+  const globalFullBackup = async () => {
     setBulkBusy(true);
     setError("");
     try {
-      const res = await api<{ jobs: { jobId: string; error?: string }[] }>(
-        "/api/file-servers/backup-all",
-        { method: "POST" },
+      const res = await api<{
+        jobs: { targetType: string; targetName: string; error?: string }[];
+      }>("/api/backup/global-full", { method: "POST" });
+      const ok = res.jobs.filter((j) => !j.error);
+      const files = ok.filter((j) => j.targetType === "file").length;
+      const dbs = ok.filter((j) => j.targetType === "db").length;
+      setInfo(
+        `Started full global backup: ${files} website(s), ${dbs} database(s). Check Jobs for progress.`,
       );
-      const n = res.jobs.filter((j) => !j.error).length;
-      setInfo(`Started ${n} website backup job(s). Check Websites for progress.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "bulk backup failed");
+      setError(e instanceof Error ? e.message : "global backup failed");
     } finally {
       setBulkBusy(false);
     }
@@ -172,15 +177,15 @@ export default function Dashboard({ onLogout }: Props) {
           <h1>Dashboard</h1>
           <p className="muted">Overview and recent activity</p>
         </div>
-        {(websiteCount ?? 0) > 0 && (
+        {hasTargets && (
           <div className="head-actions">
             <button
               type="button"
               className="btn-primary"
               disabled={bulkBusy}
-              onClick={() => void backupAllWebsites()}
+              onClick={() => void globalFullBackup()}
             >
-              {bulkBusy ? "Starting…" : "Backup all now"}
+              {bulkBusy ? "Starting…" : "Full global backup"}
             </button>
           </div>
         )}

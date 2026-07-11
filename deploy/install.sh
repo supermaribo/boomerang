@@ -39,6 +39,7 @@ apt-get install -y -qq \
   ca-certificates \
   postfix \
   mailutils \
+  sudo \
   >/dev/null
 
 echo "==> Creating boomerang system user and data directories"
@@ -60,6 +61,18 @@ fi
 
 echo "==> Installing binary to $PREFIX/bin/boomerang"
 install -m 755 "$BIN_SRC" "$PREFIX/bin/boomerang"
+
+install -m 755 "$SCRIPT_DIR/boomerang-update" /usr/local/sbin/boomerang-update
+if command -v visudo >/dev/null 2>&1; then
+  cat >/etc/sudoers.d/boomerang-update <<'EOF'
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update *
+EOF
+  chmod 440 /etc/sudoers.d/boomerang-update
+  if ! visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1; then
+    rm -f /etc/sudoers.d/boomerang-update
+    echo "warning: could not install sudoers for in-app updates" >&2
+  fi
+fi
 
 install -m 644 "$SCRIPT_DIR/boomerang.service" /etc/systemd/system/boomerang.service
 

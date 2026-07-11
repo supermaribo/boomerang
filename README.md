@@ -48,6 +48,7 @@ You get a timeline of versions, browse files inside a backup, restore selected p
 - 🔄 **Restore from R2** — import a previous appliance on first install (before admin password is set)
 - 📊 **Storage forecast** — retention-aware estimate of disk use over the next 30 days
 - 🗑️ **Delete versions** — remove individual backups you no longer need
+- ⬆️ **In-app updates** — Settings → Updates checks GitHub releases and installs on systemd appliances
 
 ---
 
@@ -78,10 +79,22 @@ On the backup appliance as **root**:
 git clone https://github.com/supermaribo/boomerang.git
 cd boomerang
 chmod +x install.sh
-./install.sh
+sudo ./install.sh --from-release
 ```
 
-The installer installs dependencies, builds the UI + binary (unless `--no-build`), creates the `boomerang` user and `/var/lib/boomerang`, and starts systemd.
+This downloads the latest [GitHub release](https://github.com/supermaribo/boomerang/releases) binary for your CPU (`boomerang-linux-amd64` or `boomerang-linux-arm64`), installs dependencies, and starts systemd. To pin a version:
+
+```bash
+sudo ./install.sh --from-release v0.1.0
+```
+
+To build from source instead (development):
+
+```bash
+sudo ./install.sh
+```
+
+The installer creates the `boomerang` user and `/var/lib/boomerang`, and enables in-app updates (Settings → Updates) on systemd installs.
 
 Open **`http://YOUR_SERVER_IP:8080`** → set your admin password → add targets → run **Backup now**.
 
@@ -89,11 +102,17 @@ Open **`http://YOUR_SERVER_IP:8080`** → set your admin password → add target
 
 ### Upgrade
 
+**From the UI (systemd installs):** Settings → Updates → check and install.
+
+**From the shell:**
+
 ```bash
 cd boomerang
 git pull
-sudo ./install.sh
+sudo ./install.sh --from-release
 ```
+
+Or pin a release: `sudo ./install.sh --from-release v0.1.0`
 
 ### Pre-built binary (build on Mac, install on LXC)
 
@@ -113,9 +132,11 @@ sudo ./install.sh --no-build /tmp/boomerang
 ```text
 sudo ./install.sh [options] [path/to/boomerang-binary]
 
-  --no-build     Use an existing binary (skip compile)
-  --binary PATH  Same as passing PATH as the last argument
-  -h, --help     Show help
+  --from-release [TAG]   Download binary from GitHub (default TAG: latest)
+  --release TAG          Same as --from-release TAG
+  --no-build             Use an existing binary (skip compile)
+  --binary PATH          Same as passing PATH as the last argument
+  -h, --help             Show help
 ```
 
 Low-level install (binary + systemd only):
@@ -128,13 +149,15 @@ sudo bash deploy/install.sh /path/to/boomerang
 
 ## 🐳 Docker
 
-Good for testing or if you prefer containers over systemd. **Use custom SMTP** for email in Docker (no local postfix in the image).
+Good for testing or if you prefer containers over systemd. **Use custom SMTP** for email in Docker (no local postfix in the image). In-app updates (Settings → Updates) are not available in Docker — rebuild the image instead.
 
 ```bash
 git clone https://github.com/supermaribo/boomerang.git
 cd boomerang
-docker compose up -d --build
+BOOMERANG_VERSION=v0.1.0 docker compose up -d --build
 ```
+
+Use `BOOMERANG_VERSION=dev` while developing from source. The version is embedded in the binary at build time.
 
 UI: **http://localhost:8080**
 

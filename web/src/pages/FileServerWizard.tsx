@@ -17,6 +17,7 @@ import type { FileServer } from "./FileServers";
 
 type DirEntry = { name: string; path: string; isDir: boolean; size: number };
 type BrowseResult = { path: string; parent: string; entries: DirEntry[] };
+type PathWarning = { path: string; message: string };
 
 const STEPS = ["Connection", "Authentication", "Paths", "Schedule & backup", "Review"] as const;
 
@@ -53,6 +54,7 @@ const emptyForm = {
   retainMonthly: 1,
   retainYearly: 1,
   incrementalEnabled: true,
+  skipIfUnchanged: false,
   enabled: true,
 };
 
@@ -70,6 +72,7 @@ export default function FileServerWizard() {
   const [copied, setCopied] = useState(false);
   const [browse, setBrowse] = useState<BrowseResult | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [pathWarnings, setPathWarnings] = useState<PathWarning[]>([]);
   const [loaded, setLoaded] = useState(!editing);
 
   const set = (k: string, v: string | number | boolean | string[]) =>
@@ -97,6 +100,7 @@ export default function FileServerWizard() {
           retainMonthly: f.retainMonthly ?? 1,
           retainYearly: f.retainYearly ?? 1,
           incrementalEnabled: f.incrementalEnabled ?? true,
+          skipIfUnchanged: f.skipIfUnchanged ?? false,
           enabled: f.enabled,
         });
         setSelected(
@@ -205,6 +209,39 @@ export default function FileServerWizard() {
       setBusy(false);
     }
   };
+
+  const validateSelectedPaths = async (paths: string[]) => {
+    if (paths.length === 0) {
+      setPathWarnings([]);
+      return;
+    }
+    try {
+      const url =
+        editing && !form.password && !form.privateKey
+          ? `/api/file-servers/${id}/validate-paths`
+          : "/api/file-servers/validate-paths";
+      const body =
+        editing && !form.password && !form.privateKey
+          ? { paths }
+          : { ...credBody(), paths };
+      const data = await api<{ warnings: PathWarning[] }>(url, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setPathWarnings(data.warnings || []);
+    } catch {
+      setPathWarnings([]);
+    }
+  };
+
+  useEffect(() => {
+    if (step !== 2 || selected.length === 0) {
+      setPathWarnings([]);
+      return;
+    }
+    void validateSelectedPaths(selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selected]);
 
   const togglePath = (p: string) => {
     setSelected((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
@@ -349,10 +386,10 @@ export default function FileServerWizard() {
                 }));
               }}
             >
-              <option value="sftp">SFTP (recommended)</option>
-              <option value="rsync">RSYNC over SSH</option>
-              <option value="ftp">FTP</option>
-              <option value="ftps">FTPS</option>
+              <option value="sftp">SFTP — recommended for WordPress and most sites</option>
+              <option value="rsync">RSYNC — recommended for Laravel and complex sites</option>
+              <option value="ftp">FTP — insecure, not recommended</option>
+              <option value="ftps">FTPS — insecure, not recommended</option>
             </select>
             <div className="row2">
               <div>
@@ -512,6 +549,22 @@ export default function FileServerWizard() {
                 ))}
               </ul>
             </div>
+            {pathWarnings.length > 0 && (
+              <div className="callout warn">
+                <strong>Some paths may not be fully readable</strong>
+                <ul className="plain small">
+                  {pathWarnings.map((w) => (
+                    <li key={w.path}>
+                      <code>{w.path}</code> — {w.message}
+                    </li>
+                  ))}
+                </ul>
+                <p className="muted small">
+                  Files under unreadable folders will be skipped during backup. Fix permissions on the
+                  remote server or choose a different path.
+                </p>
+              </div>
+            )}
             <div className="exclude-paths">
               <h3>Exclude globs</h3>
               <p className="muted small">
@@ -538,33 +591,6 @@ export default function FileServerWizard() {
 
         {step === 3 && (
           <>
-            {form.protocol === "rsync" ? (
-              <p className="callout warn">
-                RSYNC always captures a <strong>full snapshot</strong> each run (not incremental on disk).
-                Best for large sites (Laravel, WordPress, etc.) with thousands of small files — much faster
-                than SFTP because rsync batches the transfer instead of opening each file individually.
-              </p>
-            ) : (
-              <div className="wizard-section">
-                <h3 className="wizard-section-title">Backup mode</h3>
-                <p className="muted small">
-                  For PHP/Laravel sites with many small files, consider{" "}
-                  <strong>RSYNC over SSH</strong> on the connection step — it is usually much faster than
-                  SFTP.
-                </p>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={form.incrementalEnabled}
-                    onChange={(e) => set("incrementalEnabled", e.target.checked)}
-                  />
-                  Incremental backups — only copy files changed since the last successful backup
-                </label>
-                <p className="muted small">
-                  Turn off to run a full backup every time (slower, uses more disk).
-                </p>
-              </div>
-            )}
             <div className="wizard-section">
               <h3 className="wizard-section-title">Schedule & retention</h3>
               <ScheduleRetention
@@ -580,6 +606,33 @@ export default function FileServerWizard() {
                 }}
                 onRetention={(k, v) => set(k, v)}
               />
+            </div>
+            {form.protocol !== "rsync" && (
+              <div className="wizard-section">
+                <h3 className="wizard-section-title">Backup mode</h3>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={form.incrementalEnabled}
+                    onChange={(e) => set("incrementalEnabled", e.target.checked)}
+                  />
+                  Incremental backups — only copy files changed since the last successful backup
+                </label>
+                <p className="muted small">
+                  Turn off to run a full backup every time (slower, uses more disk).
+                </p>
+              </div>
+            )}
+            <div className="wizard-section">
+              <h3 className="wizard-section-title">Skip unchanged backups</h3>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={form.skipIfUnchanged}
+                  onChange={(e) => set("skipIfUnchanged", e.target.checked)}
+                />
+                Skip backup when nothing has changed since the last successful run
+              </label>
             </div>
           </>
         )}
@@ -634,6 +687,8 @@ export default function FileServerWizard() {
                   <dd>{form.incrementalEnabled ? "Enabled" : "Disabled (full backup each run)"}</dd>
                 </>
               )}
+              <dt>Skip if unchanged</dt>
+              <dd>{form.skipIfUnchanged ? "Enabled" : "Disabled"}</dd>
             </dl>
             <label className="check">
               <input

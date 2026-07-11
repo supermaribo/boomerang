@@ -3,7 +3,6 @@ package mysqlbackup
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -140,13 +139,15 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 	if len(t.IncludeTables) > 0 {
 		tables = append([]string(nil), t.IncludeTables...)
 	}
-	manifest, _ := json.MarshalIndent(map[string]any{
-		"database": t.MysqlDB,
-		"tables":   tables,
-		"bytes":    n,
-		"finished": time.Now().UTC().Format(time.RFC3339),
-	}, "", "  ")
-	_ = os.WriteFile(filepath.Join(outDir, "manifest.json"), manifest, 0o600)
+	finished := time.Now().UTC().Format(time.RFC3339)
+	checksums, err := tableChecksums(t, tables, log)
+	if err != nil {
+		log(fmt.Sprintf("warning: table checksums: %v", err))
+		checksums = nil
+	}
+	if err := writeDBManifest(outDir, t.MysqlDB, tables, n, checksums, finished); err != nil {
+		return nil, err
+	}
 	log(fmt.Sprintf("done: %d bytes, %d tables", n, len(tables)))
 	return &Result{Bytes: n, Tables: tables}, nil
 }

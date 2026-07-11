@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Replace the Boomerang binary and restart the service (root only).
+set -euo pipefail
+
+PREFIX="${PREFIX:-/usr/local}"
+SERVICE="${BOOMERANG_SERVICE:-boomerang.service}"
+
+if [[ "${1:-}" == "--check" ]]; then
+  exit 0
+fi
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "Run as root" >&2
+  exit 1
+fi
+
+NEW="${1:-}"
+if [[ -z "$NEW" || ! -f "$NEW" ]]; then
+  echo "Usage: $0 /path/to/boomerang" >&2
+  exit 1
+fi
+
+install -m 755 "$NEW" "$PREFIX/bin/boomerang"
+systemctl restart "$SERVICE"

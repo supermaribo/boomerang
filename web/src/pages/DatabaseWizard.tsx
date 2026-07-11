@@ -40,6 +40,7 @@ const emptyForm = {
   retainWeekly: 1,
   retainMonthly: 1,
   retainYearly: 1,
+  skipIfUnchanged: false,
   enabled: true,
 };
 
@@ -101,6 +102,7 @@ export default function DatabaseWizard() {
           retainWeekly: d.retainWeekly ?? 1,
           retainMonthly: d.retainMonthly ?? 1,
           retainYearly: d.retainYearly ?? 1,
+          skipIfUnchanged: d.skipIfUnchanged ?? false,
           enabled: d.enabled,
         });
         if (d.includeTables?.length) {
@@ -172,6 +174,14 @@ export default function DatabaseWizard() {
     return true;
   };
 
+  const goToStep = (i: number) => {
+    if (!editing && i > step) return;
+    setStep(i);
+    if (i === 2) {
+      void loadTables();
+    }
+  };
+
   const goNext = async () => {
     setError("");
     if (step < STEPS.length - 1) {
@@ -232,7 +242,12 @@ export default function DatabaseWizard() {
       <ol className="wizard-steps">
         {STEPS.map((label, i) => (
           <li key={label} className={i === step ? "active" : i < step ? "done" : ""}>
-            <button type="button" onClick={() => i < step && setStep(i)} disabled={i > step}>
+            <button
+              type="button"
+              onClick={() => goToStep(i)}
+              disabled={!editing && i > step}
+              title={editing ? `Jump to ${label}` : undefined}
+            >
               {label}
             </button>
           </li>
@@ -421,19 +436,35 @@ export default function DatabaseWizard() {
         )}
 
         {step === 3 && (
-          <ScheduleRetention
-            schedule={schedule}
-            onSchedule={setSchedule}
-            timeZone={timezone}
-            retention={{
-              retainHourly: form.retainHourly,
-              retainDaily: form.retainDaily,
-              retainWeekly: form.retainWeekly,
-              retainMonthly: form.retainMonthly,
-              retainYearly: form.retainYearly,
-            }}
-            onRetention={(k, v) => set(k, v)}
-          />
+          <>
+            <div className="wizard-section">
+              <h3 className="wizard-section-title">Schedule & retention</h3>
+              <ScheduleRetention
+                schedule={schedule}
+                onSchedule={setSchedule}
+                timeZone={timezone}
+                retention={{
+                  retainHourly: form.retainHourly,
+                  retainDaily: form.retainDaily,
+                  retainWeekly: form.retainWeekly,
+                  retainMonthly: form.retainMonthly,
+                  retainYearly: form.retainYearly,
+                }}
+                onRetention={(k, v) => set(k, v)}
+              />
+            </div>
+            <div className="wizard-section">
+              <h3 className="wizard-section-title">Skip unchanged backups</h3>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={form.skipIfUnchanged}
+                  onChange={(e) => set("skipIfUnchanged", e.target.checked)}
+                />
+                Skip backup when nothing has changed since the last successful run
+              </label>
+            </div>
+          </>
         )}
 
         {step === 4 && (
@@ -465,6 +496,8 @@ export default function DatabaseWizard() {
               <dd>
                 {retentionSummary(form, schedule)}
               </dd>
+              <dt>Skip if unchanged</dt>
+              <dd>{form.skipIfUnchanged ? "Enabled" : "Disabled"}</dd>
             </dl>
             <label className="check">
               <input

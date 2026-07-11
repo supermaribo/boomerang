@@ -13,6 +13,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/archive"
 	"github.com/boomerang-backup/boomerang/internal/backup"
 	"github.com/boomerang-backup/boomerang/internal/filebackup"
+	"github.com/boomerang-backup/boomerang/internal/jobs"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -219,7 +220,7 @@ func sanitizePaths(paths []string) ([]string, error) {
 
 func (s *Server) handleBackupDatabase(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	jobID, err := s.runner.StartDBBackup(id)
+	jobID, err := s.runner.StartDBBackup(id, jobs.BackupOpts{})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

@@ -28,6 +28,7 @@ type Result struct {
 	Bytes    int64
 	Files    int
 	Manifest backup.FileManifest
+	Skipped  bool
 }
 
 func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*Result, error) {
@@ -52,7 +53,7 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		if e != nil {
 			return nil, e
 		}
-		res = &Result{Bytes: sr.Bytes, Files: sr.Files, Manifest: sr.Manifest}
+		res = &Result{Bytes: sr.Bytes, Files: sr.Files, Manifest: sr.Manifest, Skipped: sr.Skipped}
 	case "ftp", "ftps":
 		sr, e := ftpbackup.Backup(target, outDir, ftpbackup.Options{
 			ExcludePaths: opt.ExcludePaths, BaseManifest: opt.BaseManifest, BaseVersionID: opt.BaseVersionID,
@@ -63,6 +64,10 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 		res = &Result{Bytes: sr.Bytes, Files: sr.Files, Manifest: sr.Manifest}
 	default:
 		return nil, fmt.Errorf("unsupported protocol %q", target.Protocol)
+	}
+
+	if res.Skipped {
+		return res, nil
 	}
 
 	if opt.Box != nil {

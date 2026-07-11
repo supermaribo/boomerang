@@ -249,6 +249,23 @@ func (s *Store) fileVersionDependsOn(v Version, ancestorID string) (bool, error)
 	return false, nil
 }
 
+// DiscardVersion removes a pending or failed version row and its files on disk.
+func (s *Store) DiscardVersion(versionID string) error {
+	v, err := s.GetVersion(versionID)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return nil
+	}
+	if v.PathOnDisk != "" {
+		_ = os.RemoveAll(v.PathOnDisk)
+	}
+	_, _ = s.DB.Exec(`DELETE FROM manifest_files WHERE version_id=?`, versionID)
+	_, err = s.DB.Exec(`DELETE FROM backup_versions WHERE id=?`, versionID)
+	return err
+}
+
 // DeleteVersion removes a single backup version and its files on disk.
 func (s *Store) DeleteVersion(targetType, targetID, versionID string) error {
 	v, err := s.GetVersion(versionID)

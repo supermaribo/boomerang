@@ -7,13 +7,17 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.23-bookworm AS gobuild
+FROM golang:bookworm AS gobuild
 WORKDIR /src
+ENV GOTOOLCHAIN=auto
+ARG VERSION=dev
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /src/cmd/boomerang/webdist ./cmd/boomerang/webdist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /boomerang ./cmd/boomerang
+RUN CGO_ENABLED=0 go build -trimpath \
+  -ldflags="-s -w -X github.com/boomerang-backup/boomerang/internal/version.Version=${VERSION}" \
+  -o /boomerang ./cmd/boomerang
 
 FROM debian:bookworm-slim
 RUN export DEBIAN_FRONTEND=noninteractive \
@@ -23,6 +27,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     openssh-client \
     rsync \
     default-mysql-client \
+    wget \
   && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --home /var/lib/boomerang --shell /usr/sbin/nologin boomerang \

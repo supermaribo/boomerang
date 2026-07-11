@@ -33,6 +33,7 @@ export type Database = {
   retainWeekly: number;
   retainMonthly: number;
   retainYearly: number;
+  skipIfUnchanged: boolean;
   enabled: boolean;
 };
 
@@ -191,6 +192,7 @@ export default function Databases() {
                     {d.includeTables?.length
                       ? ` · ${d.includeTables.length} table(s)`
                       : " · all tables"}
+                    {d.skipIfUnchanged && <span> · skip if unchanged</span>}
                   </div>
                 </div>
                 <div className="list-actions">

@@ -74,7 +74,7 @@ func (s *Scheduler) Reload() {
 					log.Printf("scheduled file backup %s skipped (before start %s)", fs.Name, fs.ScheduleStart)
 					return
 				}
-				jobID, err := s.runner.StartFileBackup(fs.ID)
+				jobID, err := s.runner.StartFileBackup(fs.ID, BackupOpts{})
 				if err != nil {
 					log.Printf("scheduled file backup %s: %v", fs.Name, err)
 					return
@@ -100,7 +100,7 @@ func (s *Scheduler) Reload() {
 					log.Printf("scheduled db backup %s skipped (before start %s)", db.Name, db.ScheduleStart)
 					return
 				}
-				jobID, err := s.runner.StartDBBackup(db.ID)
+				jobID, err := s.runner.StartDBBackup(db.ID, BackupOpts{})
 				if err != nil {
 					log.Printf("scheduled db backup %s: %v", db.Name, err)
 					return

@@ -26,6 +26,7 @@ type Result struct {
 	Bytes    int64
 	Files    int
 	Manifest backup.FileManifest
+	Skipped  bool
 }
 
 func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*Result, error) {
@@ -111,6 +112,11 @@ func Backup(target remote.FileTarget, outDir string, opt Options, log Logger) (*
 	if err != nil {
 		return nil, err
 	}
+	if opt.BaseManifest != nil && backup.FileManifestsEqual(manifest, opt.BaseManifest) {
+		log("skipped: remote files unchanged since last backup")
+		return &Result{Skipped: true, Manifest: *manifest}, nil
+	}
+
 	if err := backup.WriteFileManifest(outDir, manifest); err != nil {
 		return nil, err
 	}

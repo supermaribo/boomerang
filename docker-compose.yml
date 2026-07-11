@@ -1,7 +1,10 @@
 services:
   boomerang:
-    build: .
-    image: boomerang:latest
+    build:
+      context: .
+      args:
+        VERSION: ${BOOMERANG_VERSION:-dev}
+    image: boomerang:${BOOMERANG_VERSION:-dev}
     container_name: boomerang
     restart: unless-stopped
     ports:

@@ -29,6 +29,7 @@ type FileServer struct {
 	RetainMonthly int
 	RetainYearly      int
 	IncrementalEnabled bool
+	SkipIfUnchanged    bool
 	SSHHostKey        string
 	Enabled           bool
 	CreatedAt     string
@@ -60,6 +61,7 @@ type Database struct {
 	RetainWeekly     int
 	RetainMonthly    int
 	RetainYearly     int
+	SkipIfUnchanged  bool
 	Enabled          bool
 	CreatedAt        string
 	UpdatedAt        string
@@ -125,20 +127,21 @@ func (s *Store) ListRecentJobs(limit int) ([]Job, error) {
 const fileServerCols = `id, name, protocol, host, port, username, remote_root, include_paths, exclude_paths, auth_mode, enc_secret,
 		       schedule_cron, schedule_start, retain_count, retain_days,
 		       retain_hourly, retain_daily, retain_weekly, retain_monthly, retain_yearly,
-		       incremental_enabled, ssh_host_key, enabled, created_at, updated_at`
+		       incremental_enabled, skip_if_unchanged, ssh_host_key, enabled, created_at, updated_at`
 
 func scanFileServer(scan func(dest ...any) error) (*FileServer, error) {
 	var f FileServer
-	var enabled, incr int
+	var enabled, incr, skip int
 	var includeJSON, excludeJSON string
 	if err := scan(&f.ID, &f.Name, &f.Protocol, &f.Host, &f.Port, &f.Username, &f.RemoteRoot, &includeJSON, &excludeJSON,
 		&f.AuthMode, &f.EncSecret, &f.ScheduleCron, &f.ScheduleStart, &f.RetainCount, &f.RetainDays,
 		&f.RetainHourly, &f.RetainDaily, &f.RetainWeekly, &f.RetainMonthly, &f.RetainYearly,
-		&incr, &f.SSHHostKey, &enabled, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		&incr, &skip, &f.SSHHostKey, &enabled, &f.CreatedAt, &f.UpdatedAt); err != nil {
 		return nil, err
 	}
 	f.Enabled = enabled == 1
 	f.IncrementalEnabled = incr == 1
+	f.SkipIfUnchanged = skip == 1
 	f.IncludePaths = decodePaths(includeJSON)
 	f.ExcludePaths = decodePaths(excludeJSON)
 	return &f, nil
@@ -208,13 +211,17 @@ func (s *Store) UpsertFileServer(f *FileServer) error {
 	if f.IncrementalEnabled {
 		incr = 1
 	}
+	skip := 0
+	if f.SkipIfUnchanged {
+		skip = 1
+	}
 	_, err := s.DB.Exec(`
 		INSERT INTO file_servers(
 			id, name, protocol, host, port, username, remote_root, include_paths, exclude_paths, auth_mode, enc_secret,
 			schedule_cron, schedule_start, retain_count, retain_days,
 			retain_hourly, retain_daily, retain_weekly, retain_monthly, retain_yearly,
-			incremental_enabled, ssh_host_key, enabled, created_at, updated_at
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			incremental_enabled, skip_if_unchanged, ssh_host_key, enabled, created_at, updated_at
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name, protocol=excluded.protocol, host=excluded.host, port=excluded.port,
 			username=excluded.username, remote_root=excluded.remote_root,
@@ -227,12 +234,13 @@ func (s *Store) UpsertFileServer(f *FileServer) error {
 			retain_weekly=excluded.retain_weekly, retain_monthly=excluded.retain_monthly,
 			retain_yearly=excluded.retain_yearly,
 			incremental_enabled=excluded.incremental_enabled,
+			skip_if_unchanged=excluded.skip_if_unchanged,
 			ssh_host_key=CASE WHEN excluded.ssh_host_key != '' THEN excluded.ssh_host_key ELSE file_servers.ssh_host_key END,
 			enabled=excluded.enabled, updated_at=excluded.updated_at
 		`, f.ID, f.Name, f.Protocol, f.Host, f.Port, f.Username, f.RemoteRoot, encodePaths(f.IncludePaths), encodePaths(f.ExcludePaths), f.AuthMode, f.EncSecret,
 		f.ScheduleCron, f.ScheduleStart, f.RetainCount, f.RetainDays,
 		f.RetainHourly, f.RetainDaily, f.RetainWeekly, f.RetainMonthly, f.RetainYearly,
-		incr, f.SSHHostKey, en, f.CreatedAt, f.UpdatedAt)
+		incr, skip, f.SSHHostKey, en, f.CreatedAt, f.UpdatedAt)
 	return err
 }
 
@@ -264,20 +272,21 @@ const databaseCols = `id, name, mysql_host, mysql_port, mysql_db, mysql_user, en
 		       tunnel_mode, file_server_id, ssh_host, ssh_port, ssh_username, auth_mode, enc_ssh_secret,
 		       schedule_cron, schedule_start, retain_count, retain_days,
 		       retain_hourly, retain_daily, retain_weekly, retain_monthly, retain_yearly,
-		       enabled, created_at, updated_at`
+		       skip_if_unchanged, enabled, created_at, updated_at`
 
 func scanDatabase(scan func(dest ...any) error) (*Database, error) {
 	var d Database
-	var enabled int
+	var enabled, skip int
 	var tablesJSON string
 	if err := scan(&d.ID, &d.Name, &d.MysqlHost, &d.MysqlPort, &d.MysqlDB, &d.MysqlUser, &d.EncMysqlPassword, &tablesJSON,
 		&d.TunnelMode, &d.FileServerID, &d.SSHHost, &d.SSHPort, &d.SSHUsername, &d.AuthMode, &d.EncSSHSecret,
 		&d.ScheduleCron, &d.ScheduleStart, &d.RetainCount, &d.RetainDays,
 		&d.RetainHourly, &d.RetainDaily, &d.RetainWeekly, &d.RetainMonthly, &d.RetainYearly,
-		&enabled, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		&skip, &enabled, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return nil, err
 	}
 	d.Enabled = enabled == 1
+	d.SkipIfUnchanged = skip == 1
 	d.IncludeTables = decodePaths(tablesJSON)
 	return &d, nil
 }
@@ -320,14 +329,18 @@ func (s *Store) UpsertDatabase(d *Database) error {
 	if d.Enabled {
 		en = 1
 	}
+	skip := 0
+	if d.SkipIfUnchanged {
+		skip = 1
+	}
 	_, err := s.DB.Exec(`
 		INSERT INTO databases(
 			id, name, mysql_host, mysql_port, mysql_db, mysql_user, enc_mysql_password, include_tables,
 			tunnel_mode, file_server_id, ssh_host, ssh_port, ssh_username, auth_mode, enc_ssh_secret,
 			schedule_cron, schedule_start, retain_count, retain_days,
 			retain_hourly, retain_daily, retain_weekly, retain_monthly, retain_yearly,
-			enabled, created_at, updated_at
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			skip_if_unchanged, enabled, created_at, updated_at
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name, mysql_host=excluded.mysql_host, mysql_port=excluded.mysql_port,
 			mysql_db=excluded.mysql_db, mysql_user=excluded.mysql_user,
@@ -342,12 +355,13 @@ func (s *Store) UpsertDatabase(d *Database) error {
 			retain_hourly=excluded.retain_hourly, retain_daily=excluded.retain_daily,
 			retain_weekly=excluded.retain_weekly, retain_monthly=excluded.retain_monthly,
 			retain_yearly=excluded.retain_yearly,
+			skip_if_unchanged=excluded.skip_if_unchanged,
 			enabled=excluded.enabled, updated_at=excluded.updated_at
 	`, d.ID, d.Name, d.MysqlHost, d.MysqlPort, d.MysqlDB, d.MysqlUser, d.EncMysqlPassword, encodePaths(d.IncludeTables),
 		d.TunnelMode, nullStr(d.FileServerID), nullStr(d.SSHHost), d.SSHPort, nullStr(d.SSHUsername), d.AuthMode, d.EncSSHSecret,
 		d.ScheduleCron, d.ScheduleStart, d.RetainCount, d.RetainDays,
 		d.RetainHourly, d.RetainDaily, d.RetainWeekly, d.RetainMonthly, d.RetainYearly,
-		en, d.CreatedAt, d.UpdatedAt)
+		skip, en, d.CreatedAt, d.UpdatedAt)
 	return err
 }
 
