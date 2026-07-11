@@ -140,7 +140,7 @@ export default function Dashboard({ onLogout }: Props) {
         setData(d);
         setFileBackups(files);
         setDbBackups(dbs);
-        setTargetHealth(health.targets);
+        setTargetHealth(health.targets ?? []);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
   }, []);
@@ -204,11 +204,11 @@ export default function Dashboard({ onLogout }: Props) {
         </section>
       )}
 
-      {targetHealth.some((t) => t.health === "error" || t.health === "warning") && (
+      {(targetHealth ?? []).some((t) => t.health === "error" || t.health === "warning") && (
         <section className="tile target-health-panel">
           <h2>Backup health</h2>
           <ul className="target-health-list">
-            {targetHealth
+            {(targetHealth ?? [])
               .filter((t) => t.health === "error" || t.health === "warning")
               .map((t) => (
                 <li key={`${t.targetType}:${t.id}`}>

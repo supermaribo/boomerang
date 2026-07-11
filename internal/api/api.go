@@ -445,7 +445,7 @@ func (s *Server) spaHandler() http.Handler {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+	if err := json.NewEncoder(w).Encode(normalizeNilSlices(v)); err != nil {
 		log.Printf("write json: %v", err)
 	}
 }

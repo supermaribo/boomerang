@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.4
+
+- Fix dashboard crash on fresh install (`Cannot read properties of null (reading 'some')`) when no backup targets exist yet.
+
 ## v0.1.3
 
 - Settings → Updates now recommends `deploy/upgrade.sh` instead of `install.sh --no-build` (fixes misleading copy on Proxmox installs).
