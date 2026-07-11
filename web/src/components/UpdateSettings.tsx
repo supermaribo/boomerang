@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
 
 type UpdateCheck = {
   currentVersion: string;

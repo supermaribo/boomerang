@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
 import { useTimezone } from "../context/Timezone";
 import { guessBrowserTimezone, timezoneLabel } from "../lib/formatTime";
 import Nav from "../components/Nav";

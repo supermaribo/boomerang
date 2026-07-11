@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
 import { guessBrowserTimezone } from "../lib/formatTime";
 
 type Ctx = {

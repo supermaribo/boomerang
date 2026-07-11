@@ -286,7 +286,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 		"storageForecast":  forecast,
 		"dataDir":          s.cfg.DataDir,
 		"recentBackups":    recent,
-		"recentJobs":       jobs,
+		"recentJobs":       jobsToJSON(jobs),
 		"applianceStatus":  s.applianceStatus(),
 		"offsiteBanner":    s.offsiteBanner(backupCount),
 	})

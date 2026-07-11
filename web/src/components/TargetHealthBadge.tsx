@@ -23,6 +23,7 @@ export type TargetHealthRow = {
   id: string;
   targetType: string;
   name: string;
+  enabled?: boolean;
   health: string;
   healthDetail?: string;
   lastSuccessAt?: string;

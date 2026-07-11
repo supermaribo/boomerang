@@ -1,15 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
 import SiteFooter from "../components/SiteFooter";
 
 type Props = {
   setupRequired: boolean;
+  statusError?: string;
   onDone: () => Promise<void>;
 };
 
 type SetupMode = "new" | "restore";
 
-export default function Gate({ setupRequired, onDone }: Props) {
+export default function Gate({ setupRequired, statusError, onDone }: Props) {
   const [mode, setMode] = useState<SetupMode>("new");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -145,7 +146,9 @@ export default function Gate({ setupRequired, onDone }: Props) {
         <form
           className="card gate"
           onSubmit={
-            setupRequired
+            statusError
+              ? (e) => e.preventDefault()
+              : setupRequired
               ? mode === "new"
                 ? submitNew
                 : submitRestore
@@ -153,14 +156,28 @@ export default function Gate({ setupRequired, onDone }: Props) {
           }
         >
           <p className="brand">Boomerang</p>
-          <h1>{setupRequired ? "First flight" : "Welcome back"}</h1>
+          <h1>{statusError ? "Connection problem" : setupRequired ? "First flight" : "Welcome back"}</h1>
           <p className="lede">
-            {setupRequired
+            {statusError
+              ? "The appliance did not respond. Check that the Boomerang service is running and try again."
+              : setupRequired
               ? mode === "new"
                 ? "Set the admin password for a new appliance."
                 : "Import a previous appliance from your Cloudflare R2 mirror."
               : "Sign in to manage websites, databases, and rollbacks."}
           </p>
+
+          {statusError ? (
+            <>
+              <div className="err" role="alert">
+                {statusError}
+              </div>
+              <button type="button" disabled={busy} onClick={() => void onDone()}>
+                {busy ? "Retrying…" : "Retry"}
+              </button>
+            </>
+          ) : (
+            <>
 
           {setupRequired && (
             <>
@@ -310,6 +327,8 @@ export default function Gate({ setupRequired, onDone }: Props) {
               <button type="submit" disabled={busy}>
                 {busy ? "Working…" : setupRequired ? "Create admin" : "Sign in"}
               </button>
+            </>
+          )}
             </>
           )}
         </form>

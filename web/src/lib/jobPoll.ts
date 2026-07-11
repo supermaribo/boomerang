@@ -1,4 +1,4 @@
-import { api } from "../App";
+import { api } from "../lib/api";
 
 export type JobPollResult = {
   status: string;

@@ -11,21 +11,7 @@ import Gate from "./pages/Gate";
 import SettingsPage from "./pages/Settings";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { TimezoneProvider } from "./context/Timezone";
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-    ...init,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data as { error?: string }).error || res.statusText);
-  }
-  return data as T;
-}
-
-export { api };
+import { api, setOnUnauthorized } from "./lib/api";
 
 function LoadingScreen() {
   return (
@@ -39,28 +25,40 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [setupRequired, setSetupRequired] = useState(true);
   const [authed, setAuthed] = useState(false);
+  const [statusError, setStatusError] = useState("");
 
   const refresh = useCallback(async () => {
-    const st = await api<{ setupRequired: boolean }>("/api/status");
-    setSetupRequired(st.setupRequired);
-    if (!st.setupRequired) {
-      try {
-        await api("/api/me");
-        setAuthed(true);
-      } catch {
+    setStatusError("");
+    try {
+      const st = await api<{ setupRequired: boolean }>("/api/status");
+      setSetupRequired(st.setupRequired);
+      if (!st.setupRequired) {
+        try {
+          await api("/api/me");
+          setAuthed(true);
+        } catch {
+          setAuthed(false);
+        }
+      } else {
         setAuthed(false);
       }
-    } else {
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : "Could not reach the appliance");
       setAuthed(false);
+    } finally {
+      setReady(true);
     }
-    setReady(true);
   }, []);
 
   useEffect(() => {
-    refresh().catch((e) => {
-      console.error(e);
-      setReady(true);
+    setOnUnauthorized(() => {
+      setAuthed(false);
     });
+    return () => setOnUnauthorized(null);
+  }, []);
+
+  useEffect(() => {
+    void refresh();
   }, [refresh]);
 
   const handleLogout = useCallback(async () => {
@@ -79,7 +77,9 @@ export default function App() {
           <Route
             path="/"
             element={
-              setupRequired || !authed ? (
+              statusError ? (
+                <Gate setupRequired={false} statusError={statusError} onDone={refresh} />
+              ) : setupRequired || !authed ? (
                 <Gate setupRequired={setupRequired} onDone={refresh} />
               ) : (
                 <Navigate to="/app" replace />

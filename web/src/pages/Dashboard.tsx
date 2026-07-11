@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../App";
+import { api } from "../lib/api";
 import { useTimezone } from "../context/Timezone";
 import { formatApplianceDate, formatApplianceTime } from "../lib/formatTime";
+import { asArray } from "../lib/arrays";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import TargetHealthBadge, { type TargetHealthRow } from "../components/TargetHealthBadge";
@@ -130,24 +131,37 @@ export default function Dashboard({ onLogout }: Props) {
   const [info, setInfo] = useState("");
 
   useEffect(() => {
-    Promise.all([
-      api<Dash>("/api/dashboard"),
-      api<RecentRow[]>("/api/backups/recent?limit=10&type=file"),
-      api<RecentRow[]>("/api/backups/recent?limit=10&type=db"),
-      api<{ targets: TargetHealthRow[] }>("/api/target-health"),
-    ])
-      .then(([d, files, dbs, health]) => {
-        setData(d);
-        setFileBackups(files);
-        setDbBackups(dbs);
-        setTargetHealth(health.targets ?? []);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
+    void (async () => {
+      const errors: string[] = [];
+      const [dashRes, filesRes, dbsRes, healthRes] = await Promise.allSettled([
+        api<Dash>("/api/dashboard"),
+        api<RecentRow[]>("/api/backups/recent?limit=10&type=file"),
+        api<RecentRow[]>("/api/backups/recent?limit=10&type=db"),
+        api<{ targets: TargetHealthRow[] | null }>("/api/target-health"),
+      ]);
+      if (dashRes.status === "fulfilled") {
+        setData(dashRes.value);
+      } else {
+        errors.push(dashRes.reason instanceof Error ? dashRes.reason.message : "Dashboard failed");
+      }
+      if (filesRes.status === "fulfilled") {
+        setFileBackups(asArray(filesRes.value));
+      }
+      if (dbsRes.status === "fulfilled") {
+        setDbBackups(asArray(dbsRes.value));
+      }
+      if (healthRes.status === "fulfilled") {
+        setTargetHealth(asArray(healthRes.value.targets));
+      }
+      if (errors.length > 0) {
+        setError(errors.join("; "));
+      }
+    })();
   }, []);
 
   const websiteCount = data?.websites ?? data?.fileServers;
   const databaseCount = data?.databases ?? 0;
-  const hasTargets = (websiteCount ?? 0) > 0 || databaseCount > 0;
+  const hasTargets = (targetHealth ?? []).some((t) => t.enabled !== false);
 
   const globalFullBackup = async () => {
     setBulkBusy(true);
@@ -156,7 +170,7 @@ export default function Dashboard({ onLogout }: Props) {
       const res = await api<{
         jobs: { targetType: string; targetName: string; error?: string }[];
       }>("/api/backup/global-full", { method: "POST" });
-      const ok = res.jobs.filter((j) => !j.error);
+      const ok = asArray(res.jobs).filter((j) => !j.error);
       const files = ok.filter((j) => j.targetType === "file").length;
       const dbs = ok.filter((j) => j.targetType === "db").length;
       setInfo(

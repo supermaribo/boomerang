@@ -1,6 +1,7 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
+import { asArray } from "../lib/arrays";
 import { useTimezone } from "../context/Timezone";
 import { formatApplianceDateTime } from "../lib/formatTime";
 import { pollJob, downloadDBBackup } from "../lib/jobPoll";
@@ -61,10 +62,10 @@ export default function DatabaseBackups() {
   const load = async () => {
     const [d, vs] = await Promise.all([
       api<Database>(`/api/databases/${id}`),
-      api<Version[]>(`/api/databases/${id}/versions`),
+      api<Version[] | null>(`/api/databases/${id}/versions`),
     ]);
     setDb(d);
-    setVersions(vs);
+    setVersions(asArray(vs));
   };
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
+import { asArray } from "../lib/arrays";
 import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
@@ -51,8 +52,8 @@ export default function Databases() {
       api<Database[]>("/api/databases"),
       api<{ targets: TargetHealthRow[] }>("/api/target-health"),
     ]);
-    setList(dbs);
-    setHealthByID(healthMap(health.targets.filter((t) => t.targetType === "db")));
+    setList(asArray(dbs));
+    setHealthByID(healthMap(asArray(health.targets).filter((t) => t.targetType === "db")));
   };
 
   useEffect(() => {
@@ -119,7 +120,7 @@ export default function Databases() {
         "/api/databases/backup-all",
         { method: "POST" },
       );
-      const ok = res.jobs.filter((j) => !j.error);
+      const ok = asArray(res.jobs).filter((j) => !j.error);
       setInfo(`Started ${ok.length} database backup job(s)…`);
       for (const j of ok) {
         await pollJob(j.jobId, () => {}, { maxAttempts: 90, intervalMs: 700 });

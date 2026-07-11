@@ -149,11 +149,14 @@ func scanFileServer(scan func(dest ...any) error) (*FileServer, error) {
 
 func decodePaths(s string) []string {
 	if strings.TrimSpace(s) == "" || s == "null" {
-		return nil
+		return []string{}
 	}
 	var out []string
 	if err := json.Unmarshal([]byte(s), &out); err != nil {
-		return nil
+		return []string{}
+	}
+	if out == nil {
+		return []string{}
 	}
 	return out
 }

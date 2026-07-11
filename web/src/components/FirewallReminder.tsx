@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
 
 type ApplianceInfo = {
   localIPs?: string[];

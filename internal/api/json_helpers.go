@@ -1,6 +1,9 @@
 package api
 
-import "reflect"
+import (
+	"database/sql"
+	"reflect"
+)
 
 // normalizeNilSlices ensures JSON encodes empty lists as [] instead of null.
 func normalizeNilSlices(v any) any {
@@ -28,6 +31,19 @@ func normalizeNilSlices(v any) any {
 			return nil
 		}
 		return normalizeNilSlices(val.Elem().Interface())
+	case reflect.Struct:
+		if val.Type() == reflect.TypeOf(sql.NullString{}) {
+			return v
+		}
+		t := val.Type()
+		out := reflect.New(t).Elem()
+		for i := 0; i < val.NumField(); i++ {
+			if !out.Field(i).CanSet() {
+				continue
+			}
+			out.Field(i).Set(reflect.ValueOf(normalizeNilSlices(val.Field(i).Interface())))
+		}
+		return out.Interface()
 	default:
 		return v
 	}

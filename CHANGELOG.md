@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.5
+
+- Harden UI against null JSON arrays from the API (backup version lists, target health, job lists).
+- Fix boot flow when `/api/status` fails — show connection error instead of setup screen.
+- Redirect to login on expired session (401 handling).
+- Fix job API timestamps (`startedAt`/`finishedAt` no longer serialize as `{String, Valid}`).
+- Add runner nil guards on database backup and restore handlers.
+- Dashboard loads partial data when one endpoint fails; global backup button respects disabled targets.
+
 ## v0.1.4
 
 - Fix dashboard crash on fresh install (`Cannot read properties of null (reading 'some')`) when no backup targets exist yet.

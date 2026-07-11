@@ -789,7 +789,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, j)
+	writeJSON(w, http.StatusOK, jobToJSON(*j))
 }
 
 func (s *Server) handleGetJobLogs(w http.ResponseWriter, r *http.Request) {

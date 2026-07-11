@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api } from "../App";
+import { api } from "../lib/api";
+import { asArray } from "../lib/arrays";
 import { useTimezone } from "../context/Timezone";
 import { formatApplianceDateTime } from "../lib/formatTime";
 import Nav from "../components/Nav";
@@ -79,7 +80,7 @@ export default function ExploreBackups() {
       navigate("/app/websites", { replace: true });
       return;
     }
-    const vs = await api<Version[]>(`/api/file-servers/${id}/versions`);
+    const vs = asArray(await api<Version[] | null>(`/api/file-servers/${id}/versions`));
     setServer(fs);
     setVersions(vs);
     const ok = vs.filter((v) => v.status === "succeeded");

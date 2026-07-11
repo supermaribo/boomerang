@@ -43,6 +43,9 @@ type restoreReq struct {
 }
 
 func (s *Server) handleRestoreFileVersion(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRunner(w) {
+		return
+	}
 	fsID := chi.URLParam(r, "id")
 	vid := chi.URLParam(r, "vid")
 	fs, err := s.store.GetFileServer(fsID)
@@ -219,6 +222,9 @@ func sanitizePaths(paths []string) ([]string, error) {
 }
 
 func (s *Server) handleBackupDatabase(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRunner(w) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	jobID, err := s.runner.StartDBBackup(id, jobs.BackupOpts{})
 	if err != nil {

@@ -97,7 +97,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, jobsToJSON(list))
 }
 
 type settingsDTO struct {
@@ -355,6 +355,9 @@ func (s *Server) handleDBVersionTables(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRestoreDatabase(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRunner(w) {
+		return
+	}
 	dbID := chi.URLParam(r, "id")
 	vid := chi.URLParam(r, "vid")
 	db, err := s.store.GetDatabase(dbID)

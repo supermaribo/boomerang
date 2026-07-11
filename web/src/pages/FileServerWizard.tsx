@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api } from "../App";
+import { api } from "../lib/api";
 import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";

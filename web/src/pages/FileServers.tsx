@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { api } from "../App";
+import { api } from "../lib/api";
+import { asArray } from "../lib/arrays";
 import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
@@ -60,8 +61,8 @@ export default function FileServers() {
       api<FileServer[]>("/api/file-servers"),
       api<{ targets: TargetHealthRow[] }>("/api/target-health"),
     ]);
-    setList(list);
-    setHealthByID(healthMap(health.targets.filter((t) => t.targetType === "file")));
+    setList(asArray(list));
+    setHealthByID(healthMap(asArray(health.targets).filter((t) => t.targetType === "file")));
   };
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export default function FileServers() {
         "/api/file-servers/backup-all",
         { method: "POST" },
       );
-      const ok = res.jobs.filter((j) => !j.error);
+      const ok = asArray(res.jobs).filter((j) => !j.error);
       setInfo(`Started ${ok.length} backup job(s)…`);
       for (const j of ok) {
         await pollJob(j.jobId, () => {});
