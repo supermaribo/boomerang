@@ -4,6 +4,8 @@
 
 One Go binary, built-in web UI, no cloud subscription. Data stays on **your** server under `/var/lib/boomerang`.
 
+![Boomerang dashboard](docs/images/dashboard.png)
+
 ---
 
 ## 🤔 What is this for?
@@ -72,6 +74,20 @@ You get a timeline of versions, browse files inside a backup, restore selected p
 ## 🚀 Install (Debian / Ubuntu / LXC)
 
 Suggested Proxmox CT: **Debian 12+**, 1 vCPU, 512 MB–1 GB RAM, **20 GB+** disk, outbound SSH/MySQL to your sites.
+
+### Proxmox VE (one-liner)
+
+Paste into the **Proxmox host** shell (not an existing CT). This creates a new LXC and installs the latest GitHub release:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/proxmox/ct-boomerang.sh)"
+```
+
+Uses the [community-scripts](https://community-scripts.org) LXC wizard. When finished, open `http://<container-ip>:8080` and use the setup token from the container MOTD.
+
+To list Boomerang on [community-scripts.org](https://community-scripts.org), see [`deploy/proxmox/CONTRIBUTING.md`](deploy/proxmox/CONTRIBUTING.md) (new scripts are submitted to [ProxmoxVED](https://github.com/community-scripts/ProxmoxVED) first).
+
+### Manual install (inside the CT)
 
 On the backup appliance as **root**:
 
