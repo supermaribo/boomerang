@@ -71,68 +71,173 @@ You get a timeline of versions, browse files inside a backup, restore selected p
 
 ---
 
-## 🚀 Install (Debian / Ubuntu / LXC)
+## 🚀 Install
 
-Suggested Proxmox CT: **Debian 12+**, 1 vCPU, 512 MB–1 GB RAM, **20 GB+** disk, outbound SSH/MySQL to your sites.
+Pick the method that matches your host. All native installs use the same `install.sh` script and create a **systemd** service with data in `/var/lib/boomerang`.
 
-### Proxmox VE (one-liner)
+| Platform | Best for | In-app updates (Settings → Updates) |
+|----------|----------|-------------------------------------|
+| **Debian** | Bare metal, VM, or generic LXC | Yes |
+| **Ubuntu** | Bare metal, VM, or cloud VPS | Yes |
+| **LXC (Proxmox)** | Home lab — one-liner creates the CT | Yes |
+| **Docker** | Quick tests, non-systemd hosts | No — rebuild the image |
 
-Paste into the **Proxmox host** shell (not an existing CT). This creates a new LXC and installs the latest GitHub release:
+After install, open **`http://YOUR_SERVER_IP:8080`**, enter the setup token on first visit, set your admin password, add targets, and run a backup.
+
+> 🔒 Keep port **8080** on your LAN only. Boomerang is HTTP + single password — use a reverse proxy with TLS if exposing beyond your network.
+
+### Debian
+
+**Tested:** Debian 12+ (Bookworm). Needs **systemd** and **apt**.
+
+**Suggested resources:** 1 vCPU, 512 MB–1 GB RAM, **20 GB+** disk.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/proxmox/ct-boomerang.sh)"
-```
-
-Uses the [community-scripts](https://community-scripts.org) LXC wizard. When finished, open `http://<container-ip>:8080` and use the setup token from the container MOTD.
-
-**In-app updates:** Proxmox installs include the update helper and passwordless sudo rule. Use **Settings → Updates** to upgrade from GitHub. If you see “one-click install is not available”, refresh the service unit inside the CT (see [Troubleshooting](#-troubleshooting) below).
-
-To list Boomerang on [community-scripts.org](https://community-scripts.org), see [`deploy/proxmox/CONTRIBUTING.md`](deploy/proxmox/CONTRIBUTING.md) (new scripts are submitted to [ProxmoxVED](https://github.com/community-scripts/ProxmoxVED) first).
-
-### Manual install (inside the CT)
-
-On the backup appliance as **root**:
-
-```bash
+apt-get update && apt-get install -y git
 git clone https://github.com/supermaribo/boomerang.git
 cd boomerang
 chmod +x install.sh
 sudo ./install.sh --from-release
 ```
 
-This downloads the latest [GitHub release](https://github.com/supermaribo/boomerang/releases) binary for your CPU (`boomerang-linux-amd64` or `boomerang-linux-arm64`), installs dependencies, and starts systemd. To pin a version:
+Pin a release:
 
 ```bash
 sudo ./install.sh --from-release v0.1.0
 ```
 
-To build from source instead (development):
+**Upgrade**
+
+```bash
+cd boomerang && git pull
+sudo ./install.sh --from-release
+```
+
+Or use **Settings → Updates** in the UI.
+
+---
+
+### Ubuntu
+
+**Tested:** Ubuntu 22.04+ (Jammy, Noble). Same installer as Debian.
+
+```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/supermaribo/boomerang.git
+cd boomerang
+chmod +x install.sh
+sudo ./install.sh --from-release
+```
+
+Build from source (development):
 
 ```bash
 sudo ./install.sh
 ```
 
-The installer creates the `boomerang` user and `/var/lib/boomerang`, and enables in-app updates (Settings → Updates) on systemd installs.
+**Upgrade:** `git pull` then `sudo ./install.sh --from-release`, or **Settings → Updates**.
 
-Open **`http://YOUR_SERVER_IP:8080`** → set your admin password → add targets → run **Backup now**.
+---
 
-> 🔒 Keep port **8080** on your LAN only. Boomerang is HTTP + single password — not meant for the public internet without a reverse proxy.
+### LXC (Proxmox VE)
 
-### Upgrade
+**Suggested CT:** Debian 12, 1 vCPU, 512 MB–1 GB RAM, **20 GB+** disk, outbound SSH/MySQL to your backup targets.
 
-**From the UI (systemd installs):** Settings → Updates → check and install.
+#### Option A — one-liner (recommended)
 
-**From the shell:**
+Paste into the **Proxmox host** shell (not inside an existing CT):
 
 ```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/proxmox/ct-boomerang.sh)"
+```
+
+Uses the [community-scripts](https://community-scripts.org) LXC wizard, downloads the latest [GitHub release](https://github.com/supermaribo/boomerang/releases), and starts systemd. When finished:
+
+- UI: `http://<container-ip>:8080`
+- Setup token: container MOTD, or `pct exec <CTID> -- cat /var/lib/boomerang/secrets/setup.token`
+
+To list Boomerang on [community-scripts.org](https://community-scripts.org), see [`deploy/proxmox/CONTRIBUTING.md`](deploy/proxmox/CONTRIBUTING.md).
+
+#### Option B — manual install inside an existing CT
+
+Create a Debian 12 unprivileged CT yourself, then as **root** inside it:
+
+```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/supermaribo/boomerang.git
 cd boomerang
-git pull
 sudo ./install.sh --from-release
 ```
 
-Or pin a release: `sudo ./install.sh --from-release v0.1.0`
+#### Upgrade (Proxmox)
 
-**Proxmox CT (without git clone):** download the latest release binary and run the deploy installer from a copied `deploy/` folder, or re-run the Proxmox one-liner on a new CT.
+**From the UI:** Settings → Updates (when a newer release exists).
+
+**From the Proxmox host** (replace `100` with your CT ID):
+
+```bash
+pct exec 100 -- bash -c 'cd boomerang && git pull && ./install.sh --from-release'
+```
+
+If the CT was created with the one-liner and has no git checkout, use the [troubleshooting fix](#settings--updates-says-one-click-install-is-not-available) or re-run `install.sh --from-release` after cloning the repo.
+
+---
+
+### Docker
+
+For testing or hosts where you prefer a container over systemd. **Use custom SMTP** for email (no local postfix in the image). In-app updates are **not** available — rebuild the image to upgrade.
+
+```bash
+git clone https://github.com/supermaribo/boomerang.git
+cd boomerang
+BOOMERANG_VERSION=v0.1.0 docker compose up -d --build
+```
+
+Use `BOOMERANG_VERSION=dev` when building from source. The version is embedded at build time.
+
+UI: **http://localhost:8080**
+
+**Upgrade**
+
+```bash
+git pull
+BOOMERANG_VERSION=v0.1.0 docker compose up -d --build
+```
+
+---
+
+### Install script reference
+
+```text
+sudo ./install.sh [options] [path/to/boomerang-binary]
+
+  --from-release [TAG]   Download binary from GitHub (default TAG: latest)
+  --release TAG          Same as --from-release TAG
+  --no-build             Use an existing binary (skip compile)
+  --binary PATH          Same as passing PATH as the last argument
+  -h, --help             Show help
+```
+
+Low-level install (binary + systemd only):
+
+```bash
+sudo bash deploy/install.sh /path/to/boomerang
+```
+
+**Cross-build on a Mac, install on Linux:**
+
+```bash
+# Dev machine
+cd web && npm ci && npm run build && cd ..
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/boomerang ./cmd/boomerang
+scp dist/boomerang root@YOUR_SERVER:/tmp/
+
+# Server (needs deploy/ from the repo)
+cd boomerang
+sudo ./install.sh --no-build /tmp/boomerang
+```
+
+---
 
 ### Troubleshooting
 
@@ -167,60 +272,13 @@ EOF
 
 Then open **Settings → Updates** again — the **Update to …** button should appear when a newer release exists.
 
-**Shell upgrade** (always works on systemd appliances):
+**Shell upgrade** (always works on Debian/Ubuntu/LXC with systemd):
 
 ```bash
 git clone https://github.com/supermaribo/boomerang.git
 cd boomerang
 sudo ./install.sh --from-release
 ```
-
-### Pre-built binary (build on Mac, install on LXC)
-
-```bash
-# Dev machine
-cd web && npm ci && npm run build && cd ..
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/boomerang ./cmd/boomerang
-scp dist/boomerang root@YOUR_SERVER:/tmp/
-
-# Server (repo needed for install scripts)
-cd boomerang
-sudo ./install.sh --no-build /tmp/boomerang
-```
-
-### Install script options
-
-```text
-sudo ./install.sh [options] [path/to/boomerang-binary]
-
-  --from-release [TAG]   Download binary from GitHub (default TAG: latest)
-  --release TAG          Same as --from-release TAG
-  --no-build             Use an existing binary (skip compile)
-  --binary PATH          Same as passing PATH as the last argument
-  -h, --help             Show help
-```
-
-Low-level install (binary + systemd only):
-
-```bash
-sudo bash deploy/install.sh /path/to/boomerang
-```
-
----
-
-## 🐳 Docker
-
-Good for testing or if you prefer containers over systemd. **Use custom SMTP** for email in Docker (no local postfix in the image). In-app updates (Settings → Updates) are not available in Docker — rebuild the image instead.
-
-```bash
-git clone https://github.com/supermaribo/boomerang.git
-cd boomerang
-BOOMERANG_VERSION=v0.1.0 docker compose up -d --build
-```
-
-Use `BOOMERANG_VERSION=dev` while developing from source. The version is embedded in the binary at build time.
-
-UI: **http://localhost:8080**
 
 ---
 
