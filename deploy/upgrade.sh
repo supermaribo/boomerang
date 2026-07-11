@@ -56,10 +56,10 @@ EOF
   fi
 fi
 
+systemctl daemon-reload
+
 echo "==> Installing binary"
 "${PREFIX}/sbin/boomerang-update" "${tmpdir}/boomerang"
-
-systemctl daemon-reload
 
 if id boomerang >/dev/null 2>&1 && sudo -u boomerang sudo -n "${PREFIX}/sbin/boomerang-update" --check >/dev/null 2>&1; then
   echo "==> In-app updates (Settings → Updates): OK"
