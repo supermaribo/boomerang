@@ -41,9 +41,9 @@ jobs:
           build-args: |
             VERSION=${{ github.ref_name }}
           tags: |
-            supermaribo/boomerang:latest
-            supermaribo/boomerang:${{ steps.meta.outputs.semver }}
-            supermaribo/boomerang:${{ github.ref_name }}
+            supermaribos/boomerang:latest
+            supermaribos/boomerang:${{ steps.meta.outputs.semver }}
+            supermaribos/boomerang:${{ github.ref_name }}
 
   release:
     runs-on: ubuntu-latest

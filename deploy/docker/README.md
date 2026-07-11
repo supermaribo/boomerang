@@ -4,7 +4,7 @@ Release tags automatically build and push multi-arch images to Docker Hub when G
 
 ## One-time setup
 
-1. Create a [Docker Hub](https://hub.docker.com/) account (e.g. `supermaribo`).
+1. Create a [Docker Hub](https://hub.docker.com/) account (namespace: `supermaribos`).
 
 2. Create an access token: **Account Settings → Security → New Access Token** (read/write).
 
@@ -12,7 +12,7 @@ Release tags automatically build and push multi-arch images to Docker Hub when G
 
    | Secret | Value |
    |--------|--------|
-   | `DOCKERHUB_USERNAME` | Your Docker Hub username |
+   | `DOCKERHUB_USERNAME` | `supermaribos` |
    | `DOCKERHUB_TOKEN` | The access token (not your password) |
 
 4. Create the repository `boomerang` on Docker Hub (public), or the first push will create it if your token allows.
@@ -21,22 +21,22 @@ Release tags automatically build and push multi-arch images to Docker Hub when G
 
 Pushing `v0.1.x` runs `.github/workflows/release.yml` job **docker**, which publishes:
 
-- `supermaribo/boomerang:latest`
-- `supermaribo/boomerang:0.1.x` (without `v` prefix)
-- `supermaribo/boomerang:v0.1.x`
+- `supermaribos/boomerang:latest`
+- `supermaribos/boomerang:0.1.x` (without `v` prefix)
+- `supermaribos/boomerang:v0.1.x`
 
 Platforms: **linux/amd64**, **linux/arm64**.
 
 ## Run the published image
 
 ```bash
-docker pull supermaribo/boomerang:latest
+docker pull supermaribos/boomerang:latest
 docker run -d \
   --name boomerang \
   -p 8080:8080 \
   -v boomerang-data:/var/lib/boomerang \
   --restart unless-stopped \
-  supermaribo/boomerang:latest
+  supermaribos/boomerang:latest
 ```
 
 Or use `docker-compose.hub.yml` from the repo root.

@@ -2,7 +2,7 @@
 # Usage: BOOMERANG_VERSION=0.1.8 docker compose -f docker-compose.hub.yml up -d
 services:
   boomerang:
-    image: supermaribo/boomerang:${BOOMERANG_VERSION:-latest}
+    image: supermaribos/boomerang:${BOOMERANG_VERSION:-latest}
     container_name: boomerang
     restart: unless-stopped
     ports:

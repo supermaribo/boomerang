@@ -198,14 +198,14 @@ pct exec 100 -- bash -c 'curl -fsSL https://raw.githubusercontent.com/supermarib
 
 For testing or hosts where you prefer a container over systemd. **Use custom SMTP** for email (no local postfix in the image). In-app updates are **not** available — pull a newer image tag to upgrade.
 
-**Published image** (multi-arch on [Docker Hub](https://hub.docker.com/r/supermaribo/boomerang)):
+**Published image** (multi-arch on [Docker Hub](https://hub.docker.com/r/supermaribos/boomerang)):
 
 ```bash
-docker pull supermaribo/boomerang:latest
+docker pull supermaribos/boomerang:latest
 docker run -d --name boomerang -p 8080:8080 \
   -v boomerang-data:/var/lib/boomerang \
   --restart unless-stopped \
-  supermaribo/boomerang:latest
+  supermaribos/boomerang:latest
 ```
 
 Or with compose:
@@ -228,7 +228,7 @@ UI: **http://localhost:8080**
 **Upgrade (Docker Hub)**
 
 ```bash
-docker pull supermaribo/boomerang:0.1.8
+docker pull supermaribos/boomerang:0.1.8
 docker compose -f docker-compose.hub.yml up -d
 ```
 
