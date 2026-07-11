@@ -1,7 +1,9 @@
 {
   "name": "Boomerang",
   "slug": "boomerang",
-  "categories": [7],
+  "categories": [
+    7
+  ],
   "date_created": "2026-07-11",
   "type": "ct",
   "updateable": true,
@@ -10,8 +12,7 @@
   "interface_port": 8080,
   "documentation": "https://github.com/supermaribo/boomerang#readme",
   "website": "https://github.com/supermaribo/boomerang",
-  "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/borgbackup.webp",
-  "description": "Single-user LAN backup appliance for websites (SFTP/RSYNC/FTP) and MySQL databases, with schedules, retention, off-site R2 mirror, and a web UI.",
+  "description": "Boomerang is a self-hosted backup tool for websites (SFTP, rsync, FTP) and MySQL databases. It ships as a single Go binary with a web UI, local schedules, and optional Cloudflare R2 off-site copies.",
   "install_methods": [
     {
       "type": "default",
@@ -32,11 +33,11 @@
   },
   "notes": [
     {
-      "text": "LAN / internal use only. On first visit open http://<container-ip>:8080 and set the admin password.",
+      "text": "Set your admin password on first visit. Keep port 8080 on your LAN only.",
       "type": "warning"
     },
     {
-      "text": "Downloads the latest release from GitHub (supermaribo/boomerang). In-app updates work via Settings → Updates.",
+      "text": "Installs the latest release binary from GitHub (supermaribo/boomerang).",
       "type": "info"
     }
   ]
