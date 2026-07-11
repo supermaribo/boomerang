@@ -43,7 +43,9 @@ func BuildRestorePreview(box *crypto.Box, t Target, versionDir string, selected 
 		liveSet[tbl] = true
 	}
 
-	var rows []RestoreTableRow
+	rows := []RestoreTableRow{}
+	onlyBackup := []string{}
+	onlyLive := []string{}
 	seen := map[string]bool{}
 	for _, tbl := range backupTables {
 		if len(want) > 0 && !want[tbl] {
@@ -61,7 +63,6 @@ func BuildRestorePreview(box *crypto.Box, t Target, versionDir string, selected 
 		}
 	}
 
-	var onlyBackup, onlyLive []string
 	for _, r := range rows {
 		if r.InBackup && !r.InLive {
 			onlyBackup = append(onlyBackup, r.Name)
@@ -78,12 +79,25 @@ func BuildRestorePreview(box *crypto.Box, t Target, versionDir string, selected 
 		msg = "Review differences before restore. Tables only in the backup will be created; tables only on live are unchanged unless selected."
 	}
 
-	return RestorePreviewResult{
+	return normalizePreviewResult(RestorePreviewResult{
 		Tables:      rows,
 		BackupCount: len(backupTables),
 		LiveCount:   len(liveTables),
 		OnlyBackup:  onlyBackup,
 		OnlyLive:    onlyLive,
 		Message:     msg,
-	}, nil
+	}), nil
+}
+
+func normalizePreviewResult(r RestorePreviewResult) RestorePreviewResult {
+	if r.Tables == nil {
+		r.Tables = []RestoreTableRow{}
+	}
+	if r.OnlyBackup == nil {
+		r.OnlyBackup = []string{}
+	}
+	if r.OnlyLive == nil {
+		r.OnlyLive = []string{}
+	}
+	return r
 }

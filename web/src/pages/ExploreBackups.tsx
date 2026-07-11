@@ -568,14 +568,14 @@ export default function ExploreBackups() {
                   {preview.totalFiles} file(s) · {fmtBytes(preview.totalBytes)}
                 </p>
                 <ul className="restore-preview-list plain">
-                  {preview.files.slice(0, 40).map((f) => (
+                  {(preview.files ?? []).slice(0, 40).map((f) => (
                     <li key={f.path}>
                       <code>{f.path}</code>
                       <span className="muted"> · {fmtBytes(f.size)}</span>
                     </li>
                   ))}
-                  {preview.files.length > 40 && (
-                    <li className="muted">…and {preview.files.length - 40} more</li>
+                  {(preview.files ?? []).length > 40 && (
+                    <li className="muted">…and {(preview.files ?? []).length - 40} more</li>
                   )}
                 </ul>
                 <button type="button" className="ghost" onClick={() => setPreview(null)}>

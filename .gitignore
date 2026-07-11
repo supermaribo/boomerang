@@ -4,3 +4,7 @@ web/node_modules/
 dist/
 *.exe
 .DS_Store
+
+# Local-only smoke tests and scratch (never commit)
+.local/
+scripts/local/

@@ -247,19 +247,19 @@ export default function DatabaseBackups() {
           {restore.preview && (
             <div className="tile restore-preview">
               <p className="muted small">{restore.preview.message}</p>
-              {restore.preview.onlyBackup.length > 0 && (
+              {(restore.preview.onlyBackup ?? []).length > 0 && (
                 <p className="muted small">
                   Only in backup:{" "}
-                  <code>{restore.preview.onlyBackup.join(", ")}</code>
+                  <code>{(restore.preview.onlyBackup ?? []).join(", ")}</code>
                 </p>
               )}
-              {restore.preview.onlyLive.length > 0 && (
+              {(restore.preview.onlyLive ?? []).length > 0 && (
                 <p className="muted small">
-                  Only on live DB: <code>{restore.preview.onlyLive.join(", ")}</code>
+                  Only on live DB: <code>{(restore.preview.onlyLive ?? []).join(", ")}</code>
                 </p>
               )}
               <ul className="restore-preview-list plain">
-                {restore.preview.tables.map((row) => (
+                {(restore.preview.tables ?? []).map((row) => (
                   <li key={row.name}>
                     <code>{row.name}</code>
                     <span className="muted small">
