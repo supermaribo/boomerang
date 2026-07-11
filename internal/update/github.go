@@ -43,13 +43,19 @@ type CheckResult struct {
 	AssetURL        string `json:"assetUrl,omitempty"`
 	AssetBytes      int64  `json:"assetBytes,omitempty"`
 	CanApply        bool   `json:"canApply"`
+	CanApplyReason  string `json:"canApplyReason,omitempty"`
 	CheckError      string `json:"checkError,omitempty"`
 }
 
 func Check(current string, canApply bool) CheckResult {
+	return CheckWithReason(current, canApply, "")
+}
+
+func CheckWithReason(current string, canApply bool, canApplyReason string) CheckResult {
 	out := CheckResult{
 		CurrentVersion: displayVersion(current),
 		CanApply:       canApply,
+		CanApplyReason: canApplyReason,
 	}
 	rel, err := fetchLatestRelease()
 	if err != nil {

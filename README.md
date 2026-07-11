@@ -85,6 +85,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/ma
 
 Uses the [community-scripts](https://community-scripts.org) LXC wizard. When finished, open `http://<container-ip>:8080` and use the setup token from the container MOTD.
 
+**In-app updates:** Proxmox installs include the update helper and passwordless sudo rule. Use **Settings → Updates** to upgrade from GitHub. If you see “one-click install is not available”, refresh the service unit inside the CT (see [Troubleshooting](#-troubleshooting) below).
+
 To list Boomerang on [community-scripts.org](https://community-scripts.org), see [`deploy/proxmox/CONTRIBUTING.md`](deploy/proxmox/CONTRIBUTING.md) (new scripts are submitted to [ProxmoxVED](https://github.com/community-scripts/ProxmoxVED) first).
 
 ### Manual install (inside the CT)
@@ -129,6 +131,49 @@ sudo ./install.sh --from-release
 ```
 
 Or pin a release: `sudo ./install.sh --from-release v0.1.0`
+
+**Proxmox CT (without git clone):** download the latest release binary and run the deploy installer from a copied `deploy/` folder, or re-run the Proxmox one-liner on a new CT.
+
+### Troubleshooting
+
+#### Settings → Updates says “one-click install is not available”
+
+This is the **in-app updater** (not the Proxmox LXC wizard). It needs:
+
+1. `/usr/local/sbin/boomerang-update` installed
+2. `/etc/sudoers.d/boomerang-update` allowing the `boomerang` user passwordless sudo to that script
+3. The `boomerang` systemd unit must **not** use `NoNewPrivileges=true` (older builds blocked `sudo` from the service)
+
+**Fix inside an existing CT** (replace `100` with your CT ID):
+
+```bash
+pct exec 100 -- bash -s <<'EOF'
+set -euo pipefail
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/boomerang.service \
+  -o /etc/systemd/system/boomerang.service
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/boomerang-update \
+  -o /usr/local/sbin/boomerang-update
+chmod 755 /usr/local/sbin/boomerang-update
+cat >/etc/sudoers.d/boomerang-update <<'SUDO'
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update *
+SUDO
+chmod 440 /etc/sudoers.d/boomerang-update
+visudo -cf /etc/sudoers.d/boomerang-update
+systemctl daemon-reload
+systemctl restart boomerang
+sudo -u boomerang sudo -n /usr/local/sbin/boomerang-update --check && echo "In-app updates OK"
+EOF
+```
+
+Then open **Settings → Updates** again — the **Update to …** button should appear when a newer release exists.
+
+**Shell upgrade** (always works on systemd appliances):
+
+```bash
+git clone https://github.com/supermaribo/boomerang.git
+cd boomerang
+sudo ./install.sh --from-release
+```
 
 ### Pre-built binary (build on Mac, install on LXC)
 

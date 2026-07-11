@@ -11,6 +11,7 @@ type UpdateCheck = {
   assetName?: string;
   assetBytes?: number;
   canApply: boolean;
+  canApplyReason?: string;
   checkError?: string;
 };
 
@@ -157,8 +158,16 @@ export default function UpdateSettings({ busy, setBusy, onFlash }: Props) {
 
         {!check?.canApply && check && !check.checkError && check.updateAvailable && (
           <p className="callout warn small">
-            One-click install is not available on this host. Re-run{" "}
-            <code>sudo ./install.sh --no-build /path/to/boomerang</code> on the server instead.
+            One-click install is not available on this host.
+            {check.canApplyReason ? (
+              <> {check.canApplyReason}</>
+            ) : (
+              <>
+                {" "}
+                Re-run <code>sudo ./install.sh --from-release</code> on the appliance, or upgrade from the
+                Proxmox host with <code>pct exec &lt;CTID&gt; -- bash -c &apos;cd boomerang &amp;&amp; git pull &amp;&amp; ./install.sh --from-release&apos;</code>.
+              </>
+            )}
           </p>
         )}
 

@@ -81,11 +81,19 @@ if command -v visudo >/dev/null 2>&1; then
 boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update *
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
-  visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1 || rm -f /etc/sudoers.d/boomerang-update
+  if ! visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1; then
+    rm -f /etc/sudoers.d/boomerang-update
+    msg_warn "Could not install sudoers for in-app updates"
+  fi
 fi
 
+systemctl daemon-reload
 systemctl enable -q --now boomerang
 msg_ok "Started Boomerang service"
+
+if ! sudo -u boomerang sudo -n /usr/local/sbin/boomerang-update --check >/dev/null 2>&1; then
+  msg_warn "In-app updates (Settings → Updates) may not work until install.sh is re-run or the service unit is refreshed"
+fi
 
 motd_ssh
 customize

@@ -8,7 +8,8 @@ import (
 )
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, _ *http.Request) {
-	res := update.Check(version.Version, update.CanApply())
+	canApply, reason := update.ApplyCapability()
+	res := update.CheckWithReason(version.Version, canApply, reason)
 	writeJSON(w, http.StatusOK, res)
 }
 

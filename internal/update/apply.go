@@ -17,12 +17,23 @@ const (
 )
 
 func CanApply() bool {
+	ok, _ := ApplyCapability()
+	return ok
+}
+
+func ApplyCapability() (bool, string) {
 	st, err := os.Stat(updateHelperPath)
 	if err != nil || !st.Mode().IsRegular() {
-		return false
+		return false, "update helper is not installed — re-run install.sh as root on the appliance"
+	}
+	if _, err := os.Stat("/etc/sudoers.d/boomerang-update"); err != nil {
+		return false, "passwordless sudo for updates is not configured — re-run install.sh as root"
 	}
 	cmd := exec.Command("sudo", "-n", updateHelperPath, "--check")
-	return cmd.Run() == nil
+	if err := cmd.Run(); err != nil {
+		return false, "the boomerang service cannot run passwordless sudo (restart the service after re-running install.sh, or upgrade to a build with the systemd fix)"
+	}
+	return true, ""
 }
 
 func DownloadAsset(dataDir, assetURL, assetName string) (string, error) {

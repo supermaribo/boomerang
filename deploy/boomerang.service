@@ -11,7 +11,8 @@ Environment=BOOMERANG_LISTEN=0.0.0.0:8080
 ExecStart=/usr/local/bin/boomerang
 Restart=on-failure
 RestartSec=3
-NoNewPrivileges=true
+# NoNewPrivileges must stay off so the boomerang user can run the limited
+# passwordless sudo rule for /usr/local/sbin/boomerang-update (in-app updates).
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/boomerang
