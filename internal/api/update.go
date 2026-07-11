@@ -15,7 +15,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if !update.CanApply() {
-		writeErr(w, http.StatusBadRequest, "in-place updates are not configured on this host — run install.sh as root on the appliance")
+		writeErr(w, http.StatusBadRequest, "in-place updates are not configured on this host — "+update.UpgradeHint())
 		return
 	}
 	check := update.Check(version.Version, true)

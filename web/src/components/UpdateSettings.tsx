@@ -164,8 +164,11 @@ export default function UpdateSettings({ busy, setBusy, onFlash }: Props) {
             ) : (
               <>
                 {" "}
-                Re-run <code>sudo ./install.sh --from-release</code> on the appliance, or upgrade from the
-                Proxmox host with <code>pct exec &lt;CTID&gt; -- bash -c &apos;cd boomerang &amp;&amp; git pull &amp;&amp; ./install.sh --from-release&apos;</code>.
+                Upgrade from the appliance shell:
+                <br />
+                <code>
+                  curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/upgrade.sh | sudo bash
+                </code>
               </>
             )}
           </p>

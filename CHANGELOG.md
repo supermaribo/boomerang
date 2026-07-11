@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.3
+
+- Settings → Updates now recommends `deploy/upgrade.sh` instead of `install.sh --no-build` (fixes misleading copy on Proxmox installs).
+
 ## v0.1.2
 
 - Fix blank screen when opening `/app` directly (nested React Router routes + SPA index fallback).

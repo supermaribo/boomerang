@@ -14,7 +14,10 @@ import (
 const (
 	updateHelperPath = "/usr/local/sbin/boomerang-update"
 	updateDirName    = ".update"
+	upgradeHint      = "run: curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/upgrade.sh | sudo bash"
 )
+
+func UpgradeHint() string { return upgradeHint }
 
 func CanApply() bool {
 	ok, _ := ApplyCapability()
@@ -24,14 +27,14 @@ func CanApply() bool {
 func ApplyCapability() (bool, string) {
 	st, err := os.Stat(updateHelperPath)
 	if err != nil || !st.Mode().IsRegular() {
-		return false, "update helper is not installed — re-run install.sh as root on the appliance"
+		return false, "update helper is not installed — " + upgradeHint
 	}
 	if _, err := os.Stat("/etc/sudoers.d/boomerang-update"); err != nil {
-		return false, "passwordless sudo for updates is not configured — re-run install.sh as root"
+		return false, "passwordless sudo for updates is not configured — " + upgradeHint
 	}
 	cmd := exec.Command("sudo", "-n", updateHelperPath, "--check")
 	if err := cmd.Run(); err != nil {
-		return false, "the boomerang service cannot run passwordless sudo (restart the service after re-running install.sh, or upgrade to a build with the systemd fix)"
+		return false, "the boomerang service cannot run passwordless sudo — " + upgradeHint
 	}
 	return true, ""
 }
@@ -93,7 +96,7 @@ func DownloadAsset(dataDir, assetURL, assetName string) (string, error) {
 
 func ApplyDownloaded(path string) error {
 	if !CanApply() {
-		return fmt.Errorf("in-place updates are not configured on this host (re-run install.sh as root)")
+		return fmt.Errorf("in-place updates are not configured on this host (%s)", upgradeHint)
 	}
 	cmd := exec.Command("sudo", "-n", updateHelperPath, path)
 	out, err := cmd.CombinedOutput()
