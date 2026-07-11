@@ -171,15 +171,27 @@ sudo ./install.sh --from-release
 
 #### Upgrade (Proxmox)
 
+**No git clone?** Proxmox one-liner installs do not leave `install.sh` in your home directory. Use the standalone upgrade script **inside the CT**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/upgrade.sh | sudo bash
+```
+
+Pin a release: `curl -fsSL .../deploy/upgrade.sh | sudo bash -s v0.1.0`
+
 **From the UI:** Settings → Updates (when a newer release exists).
+
+**With git clone** (after `git clone` once into `~/boomerang`):
+
+```bash
+cd boomerang && git pull && sudo ./install.sh --from-release
+```
 
 **From the Proxmox host** (replace `100` with your CT ID):
 
 ```bash
-pct exec 100 -- bash -c 'cd boomerang && git pull && ./install.sh --from-release'
+pct exec 100 -- bash -c 'curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/upgrade.sh | bash'
 ```
-
-If the CT was created with the one-liner and has no git checkout, use the [troubleshooting fix](#settings--updates-says-one-click-install-is-not-available) or re-run `install.sh --from-release` after cloning the repo.
 
 ---
 
