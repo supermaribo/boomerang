@@ -236,6 +236,12 @@ Low-level install (binary + systemd only):
 sudo bash deploy/install.sh /path/to/boomerang
 ```
 
+**Upgrade without git** (Proxmox one-liner / appliances with no repo checkout):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/upgrade.sh | sudo bash
+```
+
 **Cross-build on a Mac, install on Linux:**
 
 ```bash
