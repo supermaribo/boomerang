@@ -37,6 +37,7 @@ fi
 
 staging_dir="${DATA_DIR}/.update"
 mkdir -p "$staging_dir"
+chown boomerang:boomerang "$staging_dir"
 chmod 700 "$staging_dir"
 tmpdir="$staging_dir"
 trap 'rm -f "${tmpdir}/boomerang" "${tmpdir}/SHA256SUMS"' EXIT
@@ -102,6 +103,9 @@ systemctl daemon-reload
 
 echo "==> Installing binary"
 "${PREFIX}/sbin/boomerang-update" "${tmpdir}/boomerang"
+rm -f "${tmpdir}/boomerang" "${tmpdir}/SHA256SUMS"
+chown boomerang:boomerang "$staging_dir"
+chmod 700 "$staging_dir"
 
 if id boomerang >/dev/null 2>&1 && sudo -u boomerang sudo -n "${PREFIX}/sbin/boomerang-update" --check >/dev/null 2>&1; then
   echo "==> In-app updates (Settings → Updates): OK"

@@ -23,6 +23,17 @@ if [[ "${1:-}" == "--check" ]]; then
     echo "data directory missing: ${DATA_DIR}" >&2
     exit 1
   fi
+  update_dir="${DATA_DIR}/.update"
+  if [[ ! -d "$update_dir" ]]; then
+    echo "update directory missing: ${update_dir}" >&2
+    exit 1
+  fi
+  if id boomerang >/dev/null 2>&1; then
+    if ! runuser -u boomerang -- test -w "$update_dir" 2>/dev/null; then
+      echo "update directory not writable by boomerang: ${update_dir}" >&2
+      exit 1
+    fi
+  fi
   exit 0
 fi
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.8
+
+- Fix in-app updates failing with `permission denied` on `/var/lib/boomerang/.update` when the directory was created by root during `upgrade.sh`.
+
 ## v0.1.7
 
 - Remove first-boot setup token — open the UI and set your admin password directly (LAN appliance).

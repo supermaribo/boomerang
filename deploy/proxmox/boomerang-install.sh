@@ -45,7 +45,8 @@ getent group postdrop >/dev/null 2>&1 && usermod -aG postdrop boomerang 2>/dev/n
 install -d -m 700 -o boomerang -g boomerang \
   "$DATA_DIR" \
   "$DATA_DIR/secrets" \
-  "$DATA_DIR/backups"
+  "$DATA_DIR/backups" \
+  "$DATA_DIR/.update"
 msg_ok "Prepared data directories"
 
 msg_info "Downloading Boomerang release"
