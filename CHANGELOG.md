@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.6
+
+- Buffer file ZIP and database SQL downloads before sending headers (no more corrupt downloads on error).
+- Pin upgrade.sh deploy scripts to the release tag; verify SHA256SUMS when available.
+- Narrow sudoers for in-app updates to `${DATA_DIR}/.update/*`; improve `boomerang-update --check`.
+- Rate-limit password changes; clear sessions and require re-login after password change.
+- Trust `X-Forwarded-For` only when `BOOMERANG_TRUST_PROXY=1`; origin check on mutating API requests.
+- Setup token in fallback HTML; constant-time token compare; stop logging token value to journal.
+- Secure session cookie when HTTPS is detected; runner nil guards on DB preview paths.
+
 ## v0.1.5
 
 - Harden UI against null JSON arrays from the API (backup version lists, target health, job lists).

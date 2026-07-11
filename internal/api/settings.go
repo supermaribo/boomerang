@@ -1,11 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -192,6 +192,11 @@ func (s *Server) loadMail() (notify.MailConfig, error) {
 }
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	ip := s.clientIP(r)
+	if !s.allowPasswordChange(ip) {
+		writeErr(w, http.StatusTooManyRequests, "too many password change attempts")
+		return
+	}
 	var req struct {
 		Current string `json:"currentPassword"`
 		New     string `json:"newPassword"`
@@ -223,8 +228,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.BumpSessionEpoch()
-	_ = s.store.Audit("password_change", "")
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	s.invalidateAllSessions()
+	_ = s.store.Audit("password_change", ip)
+	clearSessionCookie(w, r)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reauthRequired": true})
 }
 
 func settingsToDTO(cfg notify.MailConfig) settingsDTO {
@@ -247,7 +254,11 @@ func settingsToDTO(cfg notify.MailConfig) settingsDTO {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
-	cfg, _ := s.loadMail()
+	cfg, err := s.loadMail()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	dto := settingsToDTO(cfg)
 	dto.Timezone = tzutil.Name(s.store)
 	writeJSON(w, http.StatusOK, dto)
@@ -384,6 +395,9 @@ func (s *Server) handleRestoreDatabase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDBRestorePreview(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRunner(w) {
+		return
+	}
 	dbID := chi.URLParam(r, "id")
 	vid := chi.URLParam(r, "vid")
 	db, err := s.store.GetDatabase(dbID)
@@ -440,11 +454,16 @@ func (s *Server) handleDownloadDBVersion(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	filename := fmt.Sprintf("boomerang-db-%s-%s.sql", dbID[:8], time.Now().UTC().Format("20060102-150405"))
-	w.Header().Set("Content-Type", "application/sql")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	if err := mysqlbackup.StreamSQL(s.box, v.PathOnDisk, w); err != nil {
-		log.Printf("db download: %v", err)
+	var buf bytes.Buffer
+	if err := mysqlbackup.StreamSQL(s.box, v.PathOnDisk, &buf); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
+	if buf.Len() == 0 {
+		writeErr(w, http.StatusBadRequest, "backup is empty")
+		return
+	}
+	writeAttachment(w, "application/sql", filename, buf.Bytes())
 }
 
 func (s *Server) handleDeleteDBVersion(w http.ResponseWriter, r *http.Request) {

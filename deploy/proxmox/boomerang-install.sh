@@ -78,7 +78,7 @@ curl -fsSL "$RAW_BASE/deploy/boomerang.service" -o /etc/systemd/system/boomerang
 
 if command -v visudo >/dev/null 2>&1; then
   cat >/etc/sudoers.d/boomerang-update <<'EOF'
-boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update *
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update /var/lib/boomerang/.update/*
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
   if ! visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1; then

@@ -2,6 +2,7 @@ package setup
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -44,7 +45,11 @@ func ValidateToken(dataDir, provided string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(string(raw)) == provided
+	expected := strings.TrimSpace(string(raw))
+	if expected == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
 func ClearToken(dataDir string) {

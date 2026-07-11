@@ -91,12 +91,13 @@ export default function DatabaseBackups() {
     if (!db) return;
     setError("");
     try {
-      const { tables } = await api<{ tables: string[] }>(
+      const { tables } = await api<{ tables: string[] | null }>(
         `/api/databases/${db.id}/versions/${vid}/tables`,
       );
+      const tableList = asArray(tables);
       const selected: Record<string, boolean> = {};
-      for (const t of tables) selected[t] = true;
-      const state: RestoreState = { db, vid, tables, selected, confirm: "", preview: null };
+      for (const t of tableList) selected[t] = true;
+      const state: RestoreState = { db, vid, tables: tableList, selected, confirm: "", preview: null };
       setRestore(state);
       await loadRestorePreview(state);
     } catch (e) {

@@ -4,7 +4,6 @@ set -euo pipefail
 
 RELEASE_TAG="${1:-latest}"
 GITHUB_REPO="${BOOMERANG_GITHUB_REPO:-supermaribo/boomerang}"
-RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
 PREFIX="${PREFIX:-/usr/local}"
 DATA_DIR="${BOOMERANG_DATA_DIR:-/var/lib/boomerang}"
 
@@ -25,15 +24,22 @@ esac
 base="https://github.com/${GITHUB_REPO}/releases"
 if [[ "$RELEASE_TAG" == "latest" ]]; then
   url="${base}/latest/download/${asset}"
+  sums_url="${base}/latest/download/SHA256SUMS"
   label="latest"
+  RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
 else
   tag="${RELEASE_TAG#v}"
   url="${base}/download/v${tag}/${asset}"
+  sums_url="${base}/download/v${tag}/SHA256SUMS"
   label="v${tag}"
+  RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/v${tag}"
 fi
 
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
+staging_dir="${DATA_DIR}/.update"
+mkdir -p "$staging_dir"
+chmod 700 "$staging_dir"
+tmpdir="$staging_dir"
+trap 'rm -f "${tmpdir}/boomerang" "${tmpdir}/SHA256SUMS"' EXIT
 
 echo "==> Downloading ${asset} (${label})"
 echo "    ${url}"
@@ -56,20 +62,34 @@ while true; do
   echo "Failed to download release asset (HTTP ${http_code:-unknown})." >&2
   if [[ "$RELEASE_TAG" != "latest" ]]; then
     echo "New tags take 1–2 minutes to publish binaries. Wait and retry, or run without a tag for latest:" >&2
-    echo "  curl -fsSL ${RAW_BASE}/deploy/upgrade.sh | sudo bash" >&2
+    echo "  curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/deploy/upgrade.sh | sudo bash" >&2
   fi
   exit 1
 done
 chmod 755 "${tmpdir}/boomerang"
 
-echo "==> Refreshing update helper and systemd unit"
+if curl -fsSL -o "${tmpdir}/SHA256SUMS" "$sums_url" 2>/dev/null; then
+  expected="$(awk -v f="$asset" '$2 == f || $2 == "*"f {print $1; exit}' "${tmpdir}/SHA256SUMS")"
+  if [[ -n "$expected" ]]; then
+    actual="$(sha256sum "${tmpdir}/boomerang" | awk '{print $1}')"
+    if [[ "$actual" != "$expected" ]]; then
+      echo "Checksum mismatch for ${asset}" >&2
+      exit 1
+    fi
+    echo "==> Checksum verified"
+  fi
+else
+  echo "==> warning: SHA256SUMS not found — skipping checksum verification" >&2
+fi
+
+echo "==> Refreshing update helper and systemd unit (${label})"
 curl -fsSL "${RAW_BASE}/deploy/boomerang-update" -o "${PREFIX}/sbin/boomerang-update"
 chmod 755 "${PREFIX}/sbin/boomerang-update"
 curl -fsSL "${RAW_BASE}/deploy/boomerang.service" -o /etc/systemd/system/boomerang.service
 
 if command -v visudo >/dev/null 2>&1; then
-  cat >/etc/sudoers.d/boomerang-update <<'EOF'
-boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update *
+  cat >/etc/sudoers.d/boomerang-update <<EOF
+boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-update ${DATA_DIR}/.update/*
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
   if ! visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1; then

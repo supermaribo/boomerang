@@ -48,11 +48,10 @@ func main() {
 	}
 
 	if setup, err := st.IsSetup(); err == nil && !setup {
-		if tok, err := setupauth.EnsureToken(cfg.DataDir); err != nil {
+		if _, err := setupauth.EnsureToken(cfg.DataDir); err != nil {
 			log.Printf("setup token: %v", err)
 		} else {
-			log.Printf("first-boot setup token (required for initial setup): %s", tok)
-			log.Printf("token file: %s", setupauth.TokenPath(cfg.DataDir))
+			log.Printf("first-boot setup: read setup token from %s", setupauth.TokenPath(cfg.DataDir))
 		}
 	}
 

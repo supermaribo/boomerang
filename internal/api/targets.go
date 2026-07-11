@@ -1098,6 +1098,9 @@ func (s *Server) mysqlTargetFromWrite(id string, req databaseWrite, existing *st
 	if tunnel == "fileserver" && !d.FileServerID.Valid {
 		return mysqlbackup.Target{}, errMsg("select a file server for the ssh tunnel")
 	}
+	if s.runner == nil {
+		return mysqlbackup.Target{}, errMsg("backup runner unavailable")
+	}
 	return s.runner.MySQLTarget(d)
 }
 

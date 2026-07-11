@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { asArray } from "../lib/arrays";
 import { useTimezone } from "../context/Timezone";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
@@ -76,7 +77,7 @@ export default function DatabaseWizard() {
     setForm((f) => ({ ...f, [k]: v }));
 
   useEffect(() => {
-    api<FileServer[]>("/api/file-servers").then(setServers).catch(() => undefined);
+    api<FileServer[]>("/api/file-servers").then((list) => setServers(asArray(list))).catch(() => undefined);
   }, []);
 
   useEffect(() => {

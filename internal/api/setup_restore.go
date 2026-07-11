@@ -30,7 +30,7 @@ func (s *Server) handleTestRestoreR2(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	if !s.allowSetup(clientIP(r)) {
+	if !s.allowSetup(s.clientIP(r)) {
 		writeErr(w, http.StatusTooManyRequests, "too many setup attempts")
 		return
 	}
@@ -55,7 +55,7 @@ func (s *Server) handleRestoreFromR2(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	if !s.allowSetup(clientIP(r)) {
+	if !s.allowSetup(s.clientIP(r)) {
 		writeErr(w, http.StatusTooManyRequests, "too many setup attempts")
 		return
 	}

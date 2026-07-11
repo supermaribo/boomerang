@@ -2,6 +2,7 @@ package api
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,10 +181,8 @@ func (s *Server) handleDownloadFileVersion(w http.ResponseWriter, r *http.Reques
 	}
 
 	filename := fmt.Sprintf("boomerang-%s-%s.zip", fsID[:8], time.Now().UTC().Format("20060102-150405"))
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	zw := zip.NewWriter(w)
-	defer zw.Close()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
 
 	written := 0
 	for _, cid := range chain {
@@ -202,10 +201,15 @@ func (s *Server) handleDownloadFileVersion(w http.ResponseWriter, r *http.Reques
 		}
 		written += n
 	}
+	if err := zw.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if written == 0 {
 		writeErr(w, http.StatusBadRequest, "no matching files in backup")
 		return
 	}
+	writeAttachment(w, "application/zip", filename, buf.Bytes())
 }
 
 func sanitizePaths(paths []string) ([]string, error) {

@@ -55,7 +55,11 @@ const ALERTS: {
   { key: "alertOffsiteFailure", label: "Off-site mirror failed", desc: "When R2 sync fails (deduplicated per error)" },
 ];
 
-export default function SettingsPage() {
+type Props = {
+  onLogout: () => Promise<void>;
+};
+
+export default function SettingsPage({ onLogout }: Props) {
   const { timezone, setTimezone: setGlobalTimezone, refreshTimezone } = useTimezone();
   const [tab, setTab] = useState<Tab>("account");
 
@@ -215,14 +219,15 @@ export default function SettingsPage() {
     }
     setBusy(true);
     try {
-      await api("/api/settings/password", {
+      await api<{ ok: boolean; reauthRequired?: boolean }>("/api/settings/password", {
         method: "POST",
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setInfo("Password updated.");
+      setInfo("Password updated — sign in again.");
+      await onLogout();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Password change failed");
     } finally {

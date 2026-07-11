@@ -88,7 +88,15 @@ export default function App() {
           />
           <Route
             path="/app"
-            element={authed ? <Outlet /> : <Navigate to="/" replace />}
+            element={
+              authed ? (
+                <ErrorBoundary>
+                  <Outlet />
+                </ErrorBoundary>
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
           >
             <Route index element={<Dashboard onLogout={handleLogout} />} />
             <Route path="websites" element={<FileServers />} />
@@ -103,7 +111,7 @@ export default function App() {
             <Route path="databases/new" element={<DatabaseWizard />} />
             <Route path="databases/:id/backups" element={<DatabaseBackups />} />
             <Route path="databases/:id/edit" element={<DatabaseWizard />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="settings" element={<SettingsPage onLogout={handleLogout} />} />
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

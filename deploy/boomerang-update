@@ -4,8 +4,25 @@ set -euo pipefail
 
 PREFIX="${PREFIX:-/usr/local}"
 SERVICE="${BOOMERANG_SERVICE:-boomerang.service}"
+DATA_DIR="${BOOMERANG_DATA_DIR:-/var/lib/boomerang}"
 
 if [[ "${1:-}" == "--check" ]]; then
+  if [[ ! -x "${PREFIX}/bin/boomerang" ]]; then
+    echo "boomerang binary missing at ${PREFIX}/bin/boomerang" >&2
+    exit 1
+  fi
+  if [[ ! -x "${0}" ]]; then
+    echo "update helper is not executable" >&2
+    exit 1
+  fi
+  if ! systemctl cat "$SERVICE" >/dev/null 2>&1; then
+    echo "systemd unit ${SERVICE} not found" >&2
+    exit 1
+  fi
+  if [[ ! -d "$DATA_DIR" ]]; then
+    echo "data directory missing: ${DATA_DIR}" >&2
+    exit 1
+  fi
   exit 0
 fi
 

@@ -37,6 +37,7 @@ type Server struct {
 	sess   map[string]session
 	loginN map[string][]time.Time
 	setupN map[string][]time.Time
+	passwordN map[string][]time.Time
 }
 
 type session struct {
@@ -54,6 +55,7 @@ func New(cfg *config.Config, st *store.Store, box *crypto.Box, webFS fs.FS, runn
 		sess:   map[string]session{},
 		loginN: map[string][]time.Time{},
 		setupN: map[string][]time.Time{},
+		passwordN: map[string][]time.Time{},
 	}
 }
 
@@ -73,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Route("/api", func(r chi.Router) {
+		r.Use(s.requireSameOrigin)
 		r.Get("/health", s.handleHealth)
 		r.Get("/status", s.handleStatus)
 		r.Post("/setup", s.handleSetup)
@@ -152,7 +155,7 @@ type setupReq struct {
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
-	if !s.allowSetup(clientIP(r)) {
+	if !s.allowSetup(s.clientIP(r)) {
 		writeErr(w, http.StatusTooManyRequests, "too many setup attempts")
 		return
 	}
@@ -194,7 +197,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "session failed")
 		return
 	}
-	setSessionCookie(w, token)
+	setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -203,7 +206,7 @@ type loginReq struct {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.allowLogin(ip) {
 		writeErr(w, http.StatusTooManyRequests, "too many login attempts")
 		return
@@ -238,7 +241,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit("login", ip)
-	setSessionCookie(w, token)
+	setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -250,14 +253,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		_ = s.store.DeleteSession(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "boomerang_session",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -392,17 +388,6 @@ func (s *Server) allowLogin(ip string) bool {
 	return true
 }
 
-func setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "boomerang_session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400,
-	})
-}
-
 func (s *Server) spaHandler() http.Handler {
 	if s.webFS == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -472,11 +457,11 @@ function view(html){document.getElementById('app').innerHTML=html}
 async function boot(){
   const st=await status();
   if(st.setupRequired){
-    view('<h1>Boomerang</h1><p>First-run setup — choose an admin password.</p><div class="err" id="e"></div><label>Password</label><input id="p" type="password" autocomplete="new-password"/><label>Confirm</label><input id="c" type="password"/><button id="b">Create admin</button>');
+    view('<h1>Boomerang</h1><p>First-run setup — choose an admin password.</p><div class="err" id="e"></div><label>Setup token</label><input id="t" autocomplete="off" placeholder="from install output or secrets/setup.token"/><label>Password</label><input id="p" type="password" autocomplete="new-password"/><label>Confirm</label><input id="c" type="password"/><button id="b">Create admin</button>');
     document.getElementById('b').onclick=async()=>{
-      const p=document.getElementById('p').value,c=document.getElementById('c').value;
+      const p=document.getElementById('p').value,c=document.getElementById('c').value,t=document.getElementById('t').value;
       if(p!==c){document.getElementById('e').textContent='Passwords do not match';return}
-      const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
+      const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p,setupToken:t})});
       const j=await r.json(); if(!r.ok){document.getElementById('e').textContent=j.error||'failed';return} location.href='/';
     };
   } else {

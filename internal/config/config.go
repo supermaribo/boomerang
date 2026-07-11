@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -16,6 +17,7 @@ type Config struct {
 	MasterKey         []byte
 	DBPath            string
 	MaxConcurrentJobs int
+	TrustProxy        bool
 }
 
 func Load() (*Config, error) {
@@ -40,6 +42,7 @@ func Load() (*Config, error) {
 		MasterKey:         key,
 		DBPath:            filepath.Join(dataDir, "app.db"),
 		MaxConcurrentJobs: envIntOr("BOOMERANG_MAX_JOBS", defaultMaxJobs()),
+		TrustProxy:        envBoolOr("BOOMERANG_TRUST_PROXY", false),
 	}, nil
 }
 
@@ -64,6 +67,14 @@ func envIntOr(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func envBoolOr(key string, fallback bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if v == "" {
+		return fallback
+	}
+	return v == "1" || v == "true" || v == "yes"
 }
 
 func loadOrCreateMasterKey(dataDir string) ([]byte, error) {

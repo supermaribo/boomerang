@@ -91,7 +91,48 @@ func DownloadAsset(dataDir, assetURL, assetName string) (string, error) {
 		_ = os.Remove(tmp)
 		return "", err
 	}
+	if err := verifyReleaseChecksum(dest, assetURL, assetName); err != nil {
+		_ = os.Remove(dest)
+		return "", err
+	}
 	return dest, nil
+}
+
+func verifyReleaseChecksum(path, assetURL, assetName string) error {
+	sumsURL := checksumURL(assetURL)
+	if sumsURL == "" {
+		return nil
+	}
+	req, err := http.NewRequest(http.MethodGet, sumsURL, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "boomerang-appliance")
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return nil
+	}
+	expected, ok := ExpectedSHA256FromSums(string(raw), assetName)
+	if !ok {
+		return nil
+	}
+	return VerifyFileSHA256(path, expected)
+}
+
+func checksumURL(assetURL string) string {
+	if i := strings.LastIndex(assetURL, "/"); i >= 0 {
+		return assetURL[:i+1] + "SHA256SUMS"
+	}
+	return ""
 }
 
 func ApplyDownloaded(path string) error {
