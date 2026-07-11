@@ -1,0 +1,22 @@
+# Run the published Docker Hub image (no local build).
+# Usage: BOOMERANG_VERSION=0.1.8 docker compose -f docker-compose.hub.yml up -d
+services:
+  boomerang:
+    image: supermaribo/boomerang:${BOOMERANG_VERSION:-latest}
+    container_name: boomerang
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - boomerang-data:/var/lib/boomerang
+    environment:
+      BOOMERANG_LISTEN: "0.0.0.0:8080"
+      BOOMERANG_DATA_DIR: "/var/lib/boomerang"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  boomerang-data:

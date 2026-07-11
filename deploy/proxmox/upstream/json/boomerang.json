@@ -1,0 +1,43 @@
+{
+  "name": "Boomerang",
+  "slug": "boomerang",
+  "categories": [7],
+  "date_created": "2026-07-11",
+  "type": "ct",
+  "updateable": true,
+  "privileged": false,
+  "has_arm": true,
+  "interface_port": 8080,
+  "documentation": "https://github.com/supermaribo/boomerang#readme",
+  "website": "https://github.com/supermaribo/boomerang",
+  "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/borgbackup.webp",
+  "description": "Single-user LAN backup appliance for websites (SFTP/RSYNC/FTP) and MySQL databases, with schedules, retention, off-site R2 mirror, and a web UI.",
+  "install_methods": [
+    {
+      "type": "default",
+      "script": "ct/boomerang.sh",
+      "config_path": "/var/lib/boomerang",
+      "resources": {
+        "cpu": 1,
+        "ram": 512,
+        "hdd": 20,
+        "os": "Debian",
+        "version": "12"
+      }
+    }
+  ],
+  "default_credentials": {
+    "username": null,
+    "password": null
+  },
+  "notes": [
+    {
+      "text": "LAN / internal use only. On first visit open http://<container-ip>:8080 and set the admin password.",
+      "type": "warning"
+    },
+    {
+      "text": "Downloads the latest release from GitHub (supermaribo/boomerang). In-app updates work via Settings → Updates.",
+      "type": "info"
+    }
+  ]
+}

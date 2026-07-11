@@ -80,7 +80,7 @@ Pick the method that matches your host. All native installs use the same `instal
 | **Debian** | Bare metal, VM, or generic LXC | Yes |
 | **Ubuntu** | Bare metal, VM, or cloud VPS | Yes |
 | **LXC (Proxmox)** | Home lab — one-liner creates the CT | Yes |
-| **Docker** | Quick tests, non-systemd hosts | No — rebuild the image |
+| **Docker** | Quick tests, non-systemd hosts | No — pull a newer image tag |
 
 After install, open **`http://YOUR_SERVER_IP:8080`**, set your admin password on first visit, add targets, and run a backup.
 
@@ -155,7 +155,7 @@ Uses the [community-scripts](https://community-scripts.org) LXC wizard, download
 
 - UI: `http://<container-ip>:8080`
 
-To list Boomerang on [community-scripts.org](https://community-scripts.org), see [`deploy/proxmox/CONTRIBUTING.md`](deploy/proxmox/CONTRIBUTING.md).
+Upstream-ready files for [community-scripts.org](https://community-scripts.org) live in [`deploy/proxmox/upstream/`](deploy/proxmox/upstream/). See [`deploy/proxmox/SUBMIT.md`](deploy/proxmox/SUBMIT.md) for the ProxmoxVED PR checklist.
 
 #### Option B — manual install inside an existing CT
 
@@ -196,24 +196,43 @@ pct exec 100 -- bash -c 'curl -fsSL https://raw.githubusercontent.com/supermarib
 
 ### Docker
 
-For testing or hosts where you prefer a container over systemd. **Use custom SMTP** for email (no local postfix in the image). In-app updates are **not** available — rebuild the image to upgrade.
+For testing or hosts where you prefer a container over systemd. **Use custom SMTP** for email (no local postfix in the image). In-app updates are **not** available — pull a newer image tag to upgrade.
+
+**Published image** (multi-arch on [Docker Hub](https://hub.docker.com/r/supermaribo/boomerang)):
+
+```bash
+docker pull supermaribo/boomerang:latest
+docker run -d --name boomerang -p 8080:8080 \
+  -v boomerang-data:/var/lib/boomerang \
+  --restart unless-stopped \
+  supermaribo/boomerang:latest
+```
+
+Or with compose:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/docker-compose.hub.yml -o docker-compose.hub.yml
+BOOMERANG_VERSION=0.1.8 docker compose -f docker-compose.hub.yml up -d
+```
+
+**Build from source** (development):
 
 ```bash
 git clone https://github.com/supermaribo/boomerang.git
 cd boomerang
-BOOMERANG_VERSION=v0.1.0 docker compose up -d --build
+BOOMERANG_VERSION=dev docker compose up -d --build
 ```
-
-Use `BOOMERANG_VERSION=dev` when building from source. The version is embedded at build time.
 
 UI: **http://localhost:8080**
 
-**Upgrade**
+**Upgrade (Docker Hub)**
 
 ```bash
-git pull
-BOOMERANG_VERSION=v0.1.0 docker compose up -d --build
+docker pull supermaribo/boomerang:0.1.8
+docker compose -f docker-compose.hub.yml up -d
 ```
+
+See [`deploy/docker/README.md`](deploy/docker/README.md) for CI publishing and GitHub secrets setup.
 
 ---
 

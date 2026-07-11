@@ -12,25 +12,23 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/ma
 
 This uses community-scripts `build.func` for the interactive LXC wizard, but pulls the Boomerang installer from this repository until the script is listed on [community-scripts.org](https://community-scripts.org).
 
+After upstream acceptance, users will install with:
+
+```bash
+bash -c "$(curl -fsSL https://github.com/community-scripts/ProxmoxVE/raw/main/ct/boomerang.sh)"
+```
+
 ## Files in this repo
 
 | File here | Upstream path (after acceptance) |
 |-----------|----------------------------------|
-| `deploy/proxmox/ct-boomerang.sh` | `ct/boomerang.sh` |
+| `deploy/proxmox/ct-boomerang.sh` | `ct/boomerang.sh` (with curl redirect removed) |
 | `deploy/proxmox/boomerang-install.sh` | `install/boomerang-install.sh` |
+| `deploy/proxmox/upstream/json/boomerang.json` | `json/boomerang.json` |
 
-## Adding to community-scripts.org
+**PR-ready copies** (no curl redirect hack): [`deploy/proxmox/upstream/`](upstream/).
 
-New scripts are **not** merged directly into `ProxmoxVE`. Follow the official workflow:
-
-1. Read [CONTRIBUTING.md](https://github.com/community-scripts/ProxmoxVE/blob/main/CONTRIBUTING.md) and [contribution docs](https://community-scripts.org/docs/contribution).
-2. Fork [ProxmoxVED](https://github.com/community-scripts/ProxmoxVED) (the testing repo).
-3. Copy `ct-boomerang.sh` → `ct/boomerang.sh` and `boomerang-install.sh` → `install/boomerang-install.sh`.
-4. Remove the `curl` redirect hack from `ct/boomerang.sh` (upstream `build.func` will fetch `install/boomerang-install.sh` automatically).
-5. Test on a real Proxmox node; open a PR against **ProxmoxVED**.
-6. After maintainer review, the script is promoted to `ProxmoxVE` and listed on the website.
-
-You can also [request the script](https://github.com/community-scripts/ProxmoxVE/discussions) or ask in their [Discord](https://discord.gg/3AnUqsXnmK).
+Full submission steps: [`SUBMIT.md`](SUBMIT.md).
 
 ## Suggested LXC defaults
 
