@@ -411,19 +411,33 @@ func (s *Server) spaHandler() http.Handler {
 		})
 	}
 	fileServer := http.FileServer(http.FS(s.webFS))
+	serveIndex := func(w http.ResponseWriter, r *http.Request) {
+		f, err := s.webFS.Open("index.html")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.Copy(w, f)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
+		if path == "" || path == "index.html" {
+			serveIndex(w, r)
+			return
 		}
 		f, err := s.webFS.Open(path)
 		if err != nil {
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/"
-			fileServer.ServeHTTP(w, r2)
+			serveIndex(w, r)
 			return
 		}
+		st, statErr := f.Stat()
 		_ = f.Close()
+		if statErr != nil || st.IsDir() {
+			serveIndex(w, r)
+			return
+		}
 		fileServer.ServeHTTP(w, r)
 	})
 }

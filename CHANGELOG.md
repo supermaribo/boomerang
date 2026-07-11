@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.2
+
+- Fix blank screen when opening `/app` directly (nested React Router routes + SPA index fallback).
+- Add UI error boundary so crashes show a recovery screen instead of a blank page.
+
 ## v0.1.1
 
 - Fix in-app updates on systemd and Proxmox installs (remove `NoNewPrivileges` from the service unit).
