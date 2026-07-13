@@ -389,6 +389,27 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string, forceFull 
 			}
 		}
 	}
+	retention := store.Retention{
+		Hourly: fs.RetainHourly, Daily: fs.RetainDaily, Weekly: fs.RetainWeekly,
+		Monthly: fs.RetainMonthly, Yearly: fs.RetainYearly,
+		Count: fs.RetainCount, Days: fs.RetainDays,
+	}
+	if skipped && !forceFull {
+		versions, _ := r.Store.ListVersions("file", fileServerID)
+		if missing := store.MissingRetentionBuckets(versions, retention, time.Now().UTC()); len(missing) > 0 {
+			log(fmt.Sprintf("no content changes, keeping snapshot for retention (%s)", strings.Join(missing, ", ")))
+			bytes, files, err := r.materializeUnchangedFileBackup(outDir, &res.Manifest)
+			if err != nil {
+				log("error: " + err.Error())
+				_ = r.Store.UpdateVersion(versionID, "failed", 0)
+				r.fail(jobID, err.Error())
+				return
+			}
+			res.Bytes = bytes
+			res.Files = files
+			skipped = false
+		}
+	}
 	if skipped {
 		log("skipped: no changes since last successful backup")
 		r.finishSkippedBackup(jobID, versionID, outDir, sink)
@@ -396,8 +417,8 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string, forceFull 
 	}
 
 	log(fmt.Sprintf("summary: %d files backed up, %d bytes, kind=%s", res.Files, res.Bytes, res.Manifest.Kind))
-	if skipped, _ := backup.ReadSkippedLog(outDir); len(skipped) > 0 {
-		log(fmt.Sprintf("summary: %d path(s) could not be read on the remote", len(skipped)))
+	if skippedPaths, _ := backup.ReadSkippedLog(outDir); len(skippedPaths) > 0 {
+		log(fmt.Sprintf("summary: %d path(s) could not be read on the remote", len(skippedPaths)))
 	} else {
 		log("summary: no missed paths recorded")
 	}
@@ -410,11 +431,7 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string, forceFull 
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
 	sink.log(fmt.Sprintf("version %s ready (%s)", versionID, res.Manifest.Kind))
 	r.notifyJob(jobID, false, "")
-	_ = r.Store.PruneVersions("file", fileServerID, store.Retention{
-		Hourly: fs.RetainHourly, Daily: fs.RetainDaily, Weekly: fs.RetainWeekly,
-		Monthly: fs.RetainMonthly, Yearly: fs.RetainYearly,
-		Count: fs.RetainCount, Days: fs.RetainDays,
-	})
+	_ = r.Store.PruneVersions("file", fileServerID, retention)
 	r.scheduleOffsite()
 }
 
@@ -593,7 +610,16 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string, forceFull bool
 	log(fmt.Sprintf("started: %s", time.Now().UTC().Format(time.RFC3339)))
 
 	if !forceFull && db.SkipIfUnchanged {
-		if prev, _ := r.Store.LastSucceededVersion("db", databaseID); prev != nil {
+		retention := store.Retention{
+			Hourly: db.RetainHourly, Daily: db.RetainDaily, Weekly: db.RetainWeekly,
+			Monthly: db.RetainMonthly, Yearly: db.RetainYearly,
+			Count: db.RetainCount, Days: db.RetainDays,
+		}
+		versions, _ := r.Store.ListVersions("db", databaseID)
+		missing := store.MissingRetentionBuckets(versions, retention, time.Now().UTC())
+		if len(missing) > 0 {
+			log(fmt.Sprintf("retention requires snapshot (%s); running backup even if unchanged", strings.Join(missing, ", ")))
+		} else if prev, _ := r.Store.LastSucceededVersion("db", databaseID); prev != nil {
 			if ok, err := mysqlbackup.UnchangedSince(t, prev.PathOnDisk, log); err != nil {
 				log(fmt.Sprintf("warning: skip check: %v", err))
 			} else if ok {
@@ -649,6 +675,49 @@ func (r *Runner) finishSkippedBackup(jobID, versionID, outDir string, sink *jobL
 	_ = r.Store.UpdateJob(jobID, "skipped", "", time.Time{}, &now)
 	sink.log("backup skipped: no changes detected")
 	// No email — a no-change check is expected when skip-if-unchanged is on.
+}
+
+// materializeUnchangedFileBackup finishes an unchanged file backup that must be
+// kept for GFS retention (rsync may have left a tar without a written manifest).
+func (r *Runner) materializeUnchangedFileBackup(outDir string, manifest *backup.FileManifest) (bytes int64, files int, err error) {
+	if manifest == nil {
+		return 0, 0, fmt.Errorf("missing manifest for retention snapshot")
+	}
+	if _, err := backup.ReadFileManifest(outDir); err != nil {
+		if err := backup.WriteFileManifest(outDir, manifest); err != nil {
+			return 0, 0, err
+		}
+	}
+	for _, e := range manifest.Entries {
+		if !e.IsDir {
+			files++
+			bytes += e.Size
+		}
+	}
+	plain := archive.FilesBlobPath(outDir)
+	enc := crypto.EncryptedPath(plain)
+	if _, err := os.Stat(enc); err == nil {
+		if fi, err := os.Stat(enc); err == nil {
+			return fi.Size(), files, nil
+		}
+	}
+	if _, err := os.Stat(plain); err == nil {
+		if r.Box != nil {
+			if err := r.Box.EncryptFile(plain, enc); err != nil {
+				return 0, 0, fmt.Errorf("encrypt backup: %w", err)
+			}
+			_ = os.Remove(plain)
+			manifest.Encrypted = true
+			_ = backup.WriteFileManifest(outDir, manifest)
+			if fi, err := os.Stat(enc); err == nil {
+				return fi.Size(), files, nil
+			}
+		} else if fi, err := os.Stat(plain); err == nil {
+			return fi.Size(), files, nil
+		}
+	}
+	// Incremental with no payload is still a valid restore point.
+	return bytes, files, nil
 }
 
 func (r *Runner) encryptSQL(outDir string) error {

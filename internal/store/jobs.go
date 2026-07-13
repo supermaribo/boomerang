@@ -428,15 +428,66 @@ func gfsKeep(versions []Version, r Retention) map[string]bool {
 			}
 		}
 	}
-	keepBuckets(r.Hourly, func(t time.Time) string { return t.Format("2006-01-02-15") })
-	keepBuckets(r.Daily, func(t time.Time) string { return t.Format("2006-01-02") })
-	keepBuckets(r.Weekly, func(t time.Time) string {
-		y, w := t.ISOWeek()
-		return fmt.Sprintf("%d-W%02d", y, w)
-	})
-	keepBuckets(r.Monthly, func(t time.Time) string { return t.Format("2006-01") })
-	keepBuckets(r.Yearly, func(t time.Time) string { return t.Format("2006") })
+	keepBuckets(r.Hourly, retentionHourKey)
+	keepBuckets(r.Daily, retentionDayKey)
+	keepBuckets(r.Weekly, retentionWeekKey)
+	keepBuckets(r.Monthly, retentionMonthKey)
+	keepBuckets(r.Yearly, retentionYearKey)
 	return keep
+}
+
+func retentionHourKey(t time.Time) string  { return t.UTC().Format("2006-01-02-15") }
+func retentionDayKey(t time.Time) string   { return t.UTC().Format("2006-01-02") }
+func retentionMonthKey(t time.Time) string { return t.UTC().Format("2006-01") }
+func retentionYearKey(t time.Time) string  { return t.UTC().Format("2006") }
+func retentionWeekKey(t time.Time) string {
+	y, w := t.UTC().ISOWeek()
+	return fmt.Sprintf("%d-W%02d", y, w)
+}
+
+// MissingRetentionBuckets returns configured GFS tiers that have no succeeded
+// backup in the current time bucket (this hour/day/week/month/year).
+// Used so skip-if-unchanged still takes weekly/monthly/yearly anchors.
+func MissingRetentionBuckets(versions []Version, r Retention, now time.Time) []string {
+	now = now.UTC()
+	have := map[string]map[string]bool{
+		"hourly":  {},
+		"daily":   {},
+		"weekly":  {},
+		"monthly": {},
+		"yearly":  {},
+	}
+	for _, v := range versions {
+		if v.Status != "succeeded" {
+			continue
+		}
+		t, ok := parseVersionTime(v.CreatedAt)
+		if !ok {
+			continue
+		}
+		t = t.UTC()
+		have["hourly"][retentionHourKey(t)] = true
+		have["daily"][retentionDayKey(t)] = true
+		have["weekly"][retentionWeekKey(t)] = true
+		have["monthly"][retentionMonthKey(t)] = true
+		have["yearly"][retentionYearKey(t)] = true
+	}
+
+	var missing []string
+	add := func(name string, n int, key string) {
+		if n <= 0 {
+			return
+		}
+		if !have[name][key] {
+			missing = append(missing, name)
+		}
+	}
+	add("hourly", r.Hourly, retentionHourKey(now))
+	add("daily", r.Daily, retentionDayKey(now))
+	add("weekly", r.Weekly, retentionWeekKey(now))
+	add("monthly", r.Monthly, retentionMonthKey(now))
+	add("yearly", r.Yearly, retentionYearKey(now))
+	return missing
 }
 
 func parseVersionTime(s string) (time.Time, bool) {

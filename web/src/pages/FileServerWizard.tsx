@@ -633,6 +633,10 @@ export default function FileServerWizard() {
                 />
                 Skip backup when nothing has changed since the last successful run
               </label>
+              <p className="muted small">
+                Still keeps at least one real snapshot for each configured retention tier
+                (for example weekly, monthly, yearly) even when content is unchanged.
+              </p>
             </div>
           </>
         )}
