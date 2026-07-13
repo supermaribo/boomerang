@@ -104,7 +104,9 @@ export default function Databases() {
       setInfo(
         result.status === "succeeded"
           ? `Backup succeeded. ${result.lastLines.slice(-1)[0] || ""}`
-          : `Backup failed: ${result.error || result.lastLines.slice(-1)[0] || ""}`,
+          : result.status === "skipped"
+            ? `No changes since last backup. ${result.lastLines.slice(-1)[0] || ""}`
+            : `Backup failed: ${result.error || result.lastLines.slice(-1)[0] || ""}`,
       );
       await load();
     } catch (e) {

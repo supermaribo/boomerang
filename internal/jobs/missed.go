@@ -38,8 +38,8 @@ func (s *Scheduler) checkMissedBackups() {
 		if !scheduleActive(scheduleStart) {
 			return
 		}
-		last, _ := s.store.LastSucceededVersion(targetType, id)
-		if last == nil {
+		lastVer, _ := s.store.LastSucceededVersion(targetType, id)
+		if lastVer == nil {
 			key := "missed_alert:" + targetType + ":" + id
 			if sent, _, _ := s.store.GetMeta(key); sent != "" {
 				if sentAt, ok := parseStart(sent); ok && time.Since(sentAt) < 12*time.Hour {
@@ -55,10 +55,21 @@ func (s *Scheduler) checkMissedBackups() {
 			_ = s.store.SetMeta(key, time.Now().UTC().Format(time.RFC3339))
 			return
 		}
-		t, ok := parseStart(last.CreatedAt)
-		if !ok || t.After(cut) {
+
+		// A no-change skip still counts as a successful check — do not alert if one ran recently.
+		if check, _ := s.store.LastBackupCheck(targetType, id); check != nil {
+			when := check.CreatedAt
+			if check.FinishedAt.Valid && check.FinishedAt.String != "" {
+				when = check.FinishedAt.String
+			}
+			if t, ok := parseStart(when); ok && t.After(cut) {
+				return
+			}
+		}
+		if t, ok := parseStart(lastVer.CreatedAt); ok && t.After(cut) {
 			return
 		}
+
 		key := "missed_alert:" + targetType + ":" + id
 		if sent, _, _ := s.store.GetMeta(key); sent != "" {
 			if sentAt, ok := parseStart(sent); ok && time.Since(sentAt) < 12*time.Hour {
@@ -66,7 +77,7 @@ func (s *Scheduler) checkMissedBackups() {
 			}
 		}
 		subject := "[Boomerang] No recent backup: " + name
-		body := "No successful backup for " + name + " in the last 36 hours.\n\nCheck schedules and job logs in Boomerang."
+		body := "No successful backup check for " + name + " in the last 36 hours.\n\nCheck schedules and job logs in Boomerang."
 		if err := cfg.Send(subject, body); err != nil {
 			log.Printf("missed backup alert %s: %v", name, err)
 			return

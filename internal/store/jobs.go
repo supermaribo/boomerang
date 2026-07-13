@@ -165,7 +165,7 @@ func (s *Store) ListVersions(targetType, targetID string) ([]Version, error) {
 
 func (s *Store) CountVersions(targetType, targetID string) (int, error) {
 	var n int
-	err := s.DB.QueryRow(`SELECT COUNT(*) FROM backup_versions WHERE target_type=? AND target_id=?`, targetType, targetID).Scan(&n)
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM backup_versions WHERE target_type=? AND target_id=? AND status='succeeded'`, targetType, targetID).Scan(&n)
 	return n, err
 }
 
@@ -174,6 +174,26 @@ func (s *Store) LastJobForTarget(targetType, targetID string) (*Job, error) {
 	err := s.DB.QueryRow(`
 		SELECT id, target_type, target_id, kind, status, error, started_at, finished_at, created_at
 		FROM jobs WHERE target_type=? AND target_id=? ORDER BY created_at DESC LIMIT 1`,
+		targetType, targetID).
+		Scan(&j.ID, &j.TargetType, &j.TargetID, &j.Kind, &j.Status, &j.Error, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
+// LastBackupCheck returns the most recent completed backup job (succeeded or skipped/no-change).
+func (s *Store) LastBackupCheck(targetType, targetID string) (*Job, error) {
+	var j Job
+	err := s.DB.QueryRow(`
+		SELECT id, target_type, target_id, kind, status, error, started_at, finished_at, created_at
+		FROM jobs
+		WHERE target_type=? AND target_id=? AND kind='backup' AND status IN ('succeeded','skipped')
+		ORDER BY COALESCE(finished_at, created_at) DESC
+		LIMIT 1`,
 		targetType, targetID).
 		Scan(&j.ID, &j.TargetType, &j.TargetID, &j.Kind, &j.Status, &j.Error, &j.StartedAt, &j.FinishedAt, &j.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -445,7 +465,8 @@ func (s *Store) PruneJobLogs(keepDays int) error {
 	return err
 }
 
-// CleanupStaleVersions removes failed/pending backup dirs left on disk.
+// CleanupStaleVersions removes failed/pending backup dirs left on disk,
+// and trims old no-change (skipped) check rows so they do not accumulate forever.
 func (s *Store) CleanupStaleVersions() error {
 	rows, err := s.DB.Query(`SELECT id, path_on_disk, status FROM backup_versions WHERE status IN ('failed','pending')`)
 	if err != nil {
@@ -464,5 +485,10 @@ func (s *Store) CleanupStaleVersions() error {
 			_, _ = s.DB.Exec(`DELETE FROM backup_versions WHERE id=?`, id)
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	// Keep skipped check markers for 14 days (dashboard history only; no files on disk).
+	_, err = s.DB.Exec(`DELETE FROM backup_versions WHERE status='skipped' AND created_at < datetime('now', '-14 days')`)
+	return err
 }

@@ -28,6 +28,7 @@ export async function pollJob(
     }
     if (
       job.status === "succeeded" ||
+      job.status === "skipped" ||
       job.status === "failed" ||
       job.status === "cancelled"
     ) {

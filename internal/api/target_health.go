@@ -10,19 +10,19 @@ import (
 )
 
 type targetHealthRow struct {
-	ID              string `json:"id"`
-	TargetType      string `json:"targetType"`
-	Name            string `json:"name"`
-	Enabled         bool   `json:"enabled"`
-	Scheduled       bool   `json:"scheduled"`
-	LastSuccessAt   string `json:"lastSuccessAt,omitempty"`
-	LastSuccessBytes int64 `json:"lastSuccessBytes,omitempty"`
-	VersionCount    int    `json:"versionCount"`
-	LastJobStatus   string `json:"lastJobStatus,omitempty"`
-	LastJobError    string `json:"lastJobError,omitempty"`
-	NextRunAt       string `json:"nextRunAt,omitempty"`
-	Health          string `json:"health"`
-	HealthDetail    string `json:"healthDetail,omitempty"`
+	ID               string `json:"id"`
+	TargetType       string `json:"targetType"`
+	Name             string `json:"name"`
+	Enabled          bool   `json:"enabled"`
+	Scheduled        bool   `json:"scheduled"`
+	LastSuccessAt    string `json:"lastSuccessAt,omitempty"`
+	LastSuccessBytes int64  `json:"lastSuccessBytes,omitempty"`
+	VersionCount     int    `json:"versionCount"`
+	LastJobStatus    string `json:"lastJobStatus,omitempty"`
+	LastJobError     string `json:"lastJobError,omitempty"`
+	NextRunAt        string `json:"nextRunAt,omitempty"`
+	Health           string `json:"health"`
+	HealthDetail     string `json:"healthDetail,omitempty"`
 }
 
 func (s *Server) handleTargetHealth(w http.ResponseWriter, _ *http.Request) {
@@ -81,10 +81,24 @@ func (s *Server) healthForTarget(targetType, id, name string, enabled bool, cron
 		row.HealthDetail = "Scheduled but no successful backup yet"
 		return row
 	}
-	if t, ok := parseHealthTime(row.LastSuccessAt); ok {
+
+	lastCheckAt := row.LastSuccessAt
+	lastWasSkip := false
+	if check, _ := s.store.LastBackupCheck(targetType, id); check != nil {
+		when := check.CreatedAt
+		if check.FinishedAt.Valid && check.FinishedAt.String != "" {
+			when = check.FinishedAt.String
+		}
+		if when != "" {
+			lastCheckAt = when
+		}
+		lastWasSkip = check.Status == "skipped"
+	}
+
+	if t, ok := parseHealthTime(lastCheckAt); ok {
 		if time.Since(t) > 36*time.Hour {
 			row.Health = "error"
-			row.HealthDetail = "No successful backup in the last 36 hours"
+			row.HealthDetail = "No successful backup check in the last 36 hours"
 			return row
 		}
 	}
@@ -94,7 +108,11 @@ func (s *Server) healthForTarget(targetType, id, name string, enabled bool, cron
 		return row
 	}
 	row.Health = "ok"
-	row.HealthDetail = "Backing up on schedule"
+	if lastWasSkip {
+		row.HealthDetail = "Checked on schedule (no changes)"
+	} else {
+		row.HealthDetail = "Backing up on schedule"
+	}
 	return row
 }
 

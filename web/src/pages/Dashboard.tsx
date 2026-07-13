@@ -73,10 +73,15 @@ function RecentBackupList({ rows, timeZone }: { rows: RecentRow[]; timeZone: str
           <div className="dash-backup-main">
             <div className="dash-backup-top">
               <strong className="dash-backup-name">{b.targetName || b.targetId}</strong>
-              <span className={`pill ${b.status}`}>{b.status}</span>
+              <span className={`pill ${b.status}`}>
+                {b.status === "skipped" ? "checked" : b.status}
+              </span>
             </div>
             <p className="muted small dash-backup-meta">
-              {fmtBytes(b.bytes)} · {formatApplianceDate(b.createdAt, timeZone)} ·{" "}
+              {b.status === "skipped"
+                ? "No changes"
+                : fmtBytes(b.bytes)}{" "}
+              · {formatApplianceDate(b.createdAt, timeZone)} ·{" "}
               {formatApplianceTime(b.createdAt, timeZone)}
             </p>
           </div>

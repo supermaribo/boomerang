@@ -817,6 +817,11 @@ ol.compact li {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 
+.pill.skipped {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
 .pill.failed {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 40%, var(--line));

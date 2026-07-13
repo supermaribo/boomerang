@@ -86,6 +86,9 @@ func (s *Server) handleRecentBackups(w http.ResponseWriter, r *http.Request) {
 			"status": v.Status, "bytes": v.Bytes, "createdAt": v.CreatedAt,
 			"targetName": name, "exploreUrl": url,
 		})
+		if v.Status == "skipped" {
+			out[len(out)-1]["exploreUrl"] = ""
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

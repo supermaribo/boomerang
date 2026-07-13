@@ -640,10 +640,15 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string, forceFull bool
 }
 
 func (r *Runner) finishSkippedBackup(jobID, versionID, outDir string, sink *jobLogSink) {
-	_ = r.Store.DiscardVersion(versionID)
+	// Keep a version row so the check shows in recent activity, but free disk.
+	if outDir != "" {
+		_ = os.RemoveAll(outDir)
+	}
+	_ = r.Store.UpdateVersion(versionID, "skipped", 0)
 	now := time.Now().UTC()
-	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
-	sink.log("backup skipped — no changes detected")
+	_ = r.Store.UpdateJob(jobID, "skipped", "", time.Time{}, &now)
+	sink.log("backup skipped: no changes detected")
+	// No email — a no-change check is expected when skip-if-unchanged is on.
 }
 
 func (r *Runner) encryptSQL(outDir string) error {
