@@ -38,6 +38,10 @@ func Mirror(ctx context.Context, dataDir string, cfg Config, log func(string)) (
 			return walkErr
 		}
 		if d.IsDir() {
+			name := d.Name()
+			if name == ".update" || name == "secrets" || (name != "." && strings.HasPrefix(name, ".")) {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if ctx.Err() != nil {

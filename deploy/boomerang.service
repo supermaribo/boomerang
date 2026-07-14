@@ -15,7 +15,8 @@ RestartSec=3
 # passwordless sudo rule for /usr/local/sbin/boomerang-update (in-app updates).
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/boomerang
+# Data dir plus local postfix submit + sudo timestamp for update checks.
+ReadWritePaths=/var/lib/boomerang /var/spool/postfix/maildrop /var/spool/postfix/public /run/sudo
 PrivateTmp=true
 
 [Install]

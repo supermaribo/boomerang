@@ -68,6 +68,7 @@ chmod 755 /usr/local/sbin/boomerang-update
 
 if command -v visudo >/dev/null 2>&1; then
   cat >/etc/sudoers.d/boomerang-update <<'EOF'
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update --check
 boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update /var/lib/boomerang/.update/*
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
@@ -92,7 +93,7 @@ Restart=on-failure
 RestartSec=3
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/boomerang
+ReadWritePaths=/var/lib/boomerang /var/spool/postfix/maildrop /var/spool/postfix/public /run/sudo
 PrivateTmp=true
 
 [Install]

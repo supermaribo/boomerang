@@ -58,6 +58,7 @@ install -m 755 "$BIN_SRC" "$PREFIX/bin/boomerang"
 install -m 755 "$SCRIPT_DIR/boomerang-update" /usr/local/sbin/boomerang-update
 if command -v visudo >/dev/null 2>&1; then
   cat >/etc/sudoers.d/boomerang-update <<EOF
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update --check
 boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update ${DATA_DIR}/.update/*
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
