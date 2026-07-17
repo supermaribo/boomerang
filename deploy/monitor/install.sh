@@ -102,8 +102,13 @@ curl -fsSL -o "${tmpdir}/SHA256SUMS" "${base}/SHA256SUMS"
 
 install -m 755 "${tmpdir}/${asset}" "$BIN_PATH"
 
+# The account needs a real shell: sshd runs the forced command via the login
+# shell, so nologin would break metric export. Access stays restricted by the
+# authorized_keys forced command + no-pty/no-forwarding options.
 if ! id "$INSTALL_USER" &>/dev/null; then
-  useradd --system --home-dir "$INSTALL_HOME" --create-home --shell /usr/sbin/nologin "$INSTALL_USER"
+  useradd --system --home-dir "$INSTALL_HOME" --create-home --shell /bin/sh "$INSTALL_USER"
+else
+  usermod -s /bin/sh "$INSTALL_USER"
 fi
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME"
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME/.ssh"
