@@ -448,7 +448,7 @@ export default function MonitorDetail() {
                 Apache/Nginx read access.
               </p>
             )}
-            <div className="grid-2">
+            <div className="grid-2 monitor-log-controls">
               <label>
                 Lines
                 <input
@@ -545,9 +545,6 @@ export default function MonitorDetail() {
                     value={edit.alertSustainSec}
                     onChange={(e) => setEdit({ ...edit, alertSustainSec: Number(e.target.value) })}
                   />
-                  <span className="muted small">
-                    Must stay above the CPU, memory, disk, or load threshold for this long before alerting.
-                  </span>
                 </label>
                 <label>
                   Offline after seconds

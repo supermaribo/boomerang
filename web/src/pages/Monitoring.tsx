@@ -163,7 +163,7 @@ export default function Monitoring() {
             {servers.map((s) => (
               <li key={s.id} className="monitor-row">
                 <div className="monitor-row-main">
-                  <div className="row-head" style={{ marginBottom: 0 }}>
+                  <div className="monitor-server-title">
                     <Link className="text-link" to={`/app/monitoring/${s.id}`}>
                       <strong>{s.name}</strong>
                     </Link>

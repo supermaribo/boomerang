@@ -2130,6 +2130,12 @@ button.crumb {
   min-width: 0;
 }
 
+.monitor-server-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .monitor-metrics {
   margin-top: 0.25rem;
 }
@@ -2195,6 +2201,12 @@ button.crumb {
   background: color-mix(in srgb, var(--bg) 40%, var(--panel));
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.monitor-log-controls input,
+.monitor-log-controls select {
+  box-sizing: border-box;
+  height: 2.85rem;
 }
 
 .grid-2 {
