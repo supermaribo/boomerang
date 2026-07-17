@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 )
 
 const (
-	SSHActionExport = "export"
-	SSHActionLogs   = "logs"
+	SSHActionExport     = "export"
+	SSHActionLogs       = "logs"
+	SSHActionLogSources = "log-sources"
 
 	DefaultLogLines = 200
 	MaxLogLines     = 1000
@@ -18,10 +18,10 @@ const (
 
 // SSHAction is a validated forced-command invocation.
 type SSHAction struct {
-	Kind  string // SSHActionExport or SSHActionLogs
-	Since time.Time
-	Lines int
-	Unit  string
+	Kind   string // SSHActionExport or SSHActionLogs
+	Since  time.Time
+	Lines  int
+	Source string
 }
 
 // ParseSSHCommand validates SSH_ORIGINAL_COMMAND for the forced-command key.
@@ -39,11 +39,13 @@ func ParseSSHCommand(cmd string) (SSHAction, error) {
 		}
 		return SSHAction{Kind: SSHActionExport, Since: since}, nil
 	case cmd == "boomerang-monitor ssh-logs" || strings.HasPrefix(cmd, "boomerang-monitor ssh-logs "):
-		lines, unit, err := parseLogsArgs(strings.TrimSpace(strings.TrimPrefix(cmd, "boomerang-monitor ssh-logs")))
+		lines, source, err := parseLogsArgs(strings.TrimSpace(strings.TrimPrefix(cmd, "boomerang-monitor ssh-logs")))
 		if err != nil {
 			return SSHAction{}, err
 		}
-		return SSHAction{Kind: SSHActionLogs, Lines: lines, Unit: unit}, nil
+		return SSHAction{Kind: SSHActionLogs, Lines: lines, Source: source}, nil
+	case cmd == "boomerang-monitor ssh-log-sources":
+		return SSHAction{Kind: SSHActionLogSources}, nil
 	default:
 		return SSHAction{}, fmt.Errorf("forbidden SSH command")
 	}
@@ -86,10 +88,11 @@ func parseExportArgs(rest string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-func parseLogsArgs(rest string) (lines int, unit string, err error) {
+func parseLogsArgs(rest string) (lines int, source string, err error) {
 	lines = DefaultLogLines
+	source = "journal"
 	if rest == "" {
-		return lines, "", nil
+		return lines, source, nil
 	}
 	for _, part := range strings.Fields(rest) {
 		switch {
@@ -103,28 +106,47 @@ func parseLogsArgs(rest string) (lines int, unit string, err error) {
 				n = MaxLogLines
 			}
 			lines = n
-		case strings.HasPrefix(part, "--unit="):
-			raw := strings.Trim(strings.TrimPrefix(part, "--unit="), `"'`)
+		case strings.HasPrefix(part, "--source="):
+			raw := strings.Trim(strings.TrimPrefix(part, "--source="), `"'`)
 			if raw == "" {
 				continue
 			}
-			if !validUnitName(raw) {
-				return 0, "", fmt.Errorf("invalid --unit")
+			if !validSourceID(raw) {
+				return 0, "", fmt.Errorf("invalid --source")
 			}
-			unit = raw
+			source = raw
 		default:
 			return 0, "", fmt.Errorf("forbidden SSH command")
 		}
 	}
-	return lines, unit, nil
+	return lines, source, nil
 }
 
-func validUnitName(s string) bool {
+func validSourceID(s string) bool {
 	if len(s) == 0 || len(s) > 128 {
 		return false
 	}
+	if s == "journal" {
+		return true
+	}
+	parts := strings.Split(s, "/")
+	if len(parts) == 2 && parts[0] == "unit" {
+		return validSourceToken(parts[1])
+	}
+	if len(parts) == 3 && parts[0] == "file" &&
+		(parts[1] == "nginx" || parts[1] == "apache2" || parts[1] == "httpd") {
+		return validSourceToken(parts[2])
+	}
+	return false
+}
+
+func validSourceToken(s string) bool {
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '-' || r == '_' || r == '@' {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '-' || r == '_' || r == '@' {
 			continue
 		}
 		return false

@@ -114,6 +114,10 @@ fi
 if getent group systemd-journal >/dev/null 2>&1; then
   usermod -aG systemd-journal "$INSTALL_USER"
 fi
+# Debian/Ubuntu grant read-only access to web and system log files via adm.
+if getent group adm >/dev/null 2>&1; then
+  usermod -aG adm "$INSTALL_USER"
+fi
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME"
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME/.ssh"
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME/spool"

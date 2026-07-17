@@ -236,8 +236,34 @@ func (p *Poller) runSSH(m store.MonitoredServer, secret remote.AuthSecret, cmd s
 	return stdout.Bytes(), nil
 }
 
-// FetchLogs pulls recent journal lines from the monitored host over SSH.
-func (p *Poller) FetchLogs(id string, lines int, unit string) (string, error) {
+// FetchLogSources asks the agent which allowlisted logs are readable.
+func (p *Poller) FetchLogSources(id string) ([]metrics.LogSource, error) {
+	m, err := p.store.GetMonitoredServer(id)
+	if err != nil || m == nil {
+		return nil, fmt.Errorf("server not found")
+	}
+	secret, err := p.openSecret(m)
+	if err != nil {
+		return nil, err
+	}
+	out, err := p.runSSH(*m, secret, "boomerang-monitor ssh-log-sources")
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Sources []metrics.LogSource `json:"sources"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return nil, fmt.Errorf("invalid log sources payload: %w", err)
+	}
+	if payload.Sources == nil {
+		payload.Sources = []metrics.LogSource{}
+	}
+	return payload.Sources, nil
+}
+
+// FetchLogs pulls recent lines from an allowlisted source over SSH.
+func (p *Poller) FetchLogs(id string, lines int, source string) (string, error) {
 	m, err := p.store.GetMonitoredServer(id)
 	if err != nil || m == nil {
 		return "", fmt.Errorf("server not found")
@@ -252,13 +278,13 @@ func (p *Poller) FetchLogs(id string, lines int, unit string) (string, error) {
 	if lines > 1000 {
 		lines = 1000
 	}
-	cmd := fmt.Sprintf("boomerang-monitor ssh-logs --lines=%d", lines)
-	if unit != "" {
-		if err := validateLogUnit(unit); err != nil {
-			return "", err
-		}
-		cmd += " --unit=" + unit
+	if source == "" {
+		source = "journal"
 	}
+	if err := validateLogSource(source); err != nil {
+		return "", err
+	}
+	cmd := fmt.Sprintf("boomerang-monitor ssh-logs --lines=%d --source=%s", lines, source)
 	out, err := p.runSSH(*m, secret, cmd)
 	if err != nil {
 		return "", err
@@ -266,16 +292,16 @@ func (p *Poller) FetchLogs(id string, lines int, unit string) (string, error) {
 	return string(out), nil
 }
 
-func validateLogUnit(unit string) error {
-	if len(unit) == 0 || len(unit) > 128 {
-		return fmt.Errorf("invalid unit")
+func validateLogSource(source string) error {
+	if len(source) == 0 || len(source) > 128 || strings.Contains(source, "..") {
+		return fmt.Errorf("invalid log source")
 	}
-	for _, r := range unit {
+	for _, r := range source {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
-			r == '.' || r == '-' || r == '_' || r == '@' {
+			r == '.' || r == '-' || r == '_' || r == '@' || r == '/' {
 			continue
 		}
-		return fmt.Errorf("invalid unit")
+		return fmt.Errorf("invalid log source")
 	}
 	return nil
 }

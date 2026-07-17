@@ -27,6 +27,8 @@ func main() {
 		runSSHExport(os.Args[2:])
 	case "ssh-logs":
 		runSSHLogs(os.Args[2:])
+	case "ssh-log-sources":
+		runSSHLogSources()
 	case "ssh-forced":
 		// Invoked via authorized_keys command=…; only honors SSH_ORIGINAL_COMMAND.
 		runSSHForced()
@@ -45,7 +47,8 @@ Usage:
   boomerang-monitor daemon              Collect metrics every minute into the spool
   boomerang-monitor collect             Collect one sample (for testing)
   boomerang-monitor ssh-export [--since=RFC3339]
-  boomerang-monitor ssh-logs [--lines=N] [--unit=name.service]
+  boomerang-monitor ssh-logs [--lines=N] [--source=source-id]
+  boomerang-monitor ssh-log-sources
   boomerang-monitor ssh-forced          Restricted SSH entrypoint (forced command)
   boomerang-monitor version
 `, version.Version)
@@ -107,7 +110,9 @@ func runSSHForced() {
 	case agentstats.SSHActionExport:
 		exportSince(action.Since)
 	case agentstats.SSHActionLogs:
-		printJournal(action.Lines, action.Unit)
+		printLogs(action.Lines, action.Source)
+	case agentstats.SSHActionLogSources:
+		runSSHLogSources()
 	default:
 		fmt.Fprintf(os.Stderr, "boomerang-monitor: forbidden SSH command\n")
 		os.Exit(1)
@@ -163,11 +168,21 @@ func runSSHLogs(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	printJournal(action.Lines, action.Unit)
+	printLogs(action.Lines, action.Source)
 }
 
-func printJournal(lines int, unit string) {
-	out, err := agentstats.ReadJournal(lines, unit)
+func runSSHLogSources() {
+	sources := agentstats.AvailableLogSources()
+	if sources == nil {
+		sources = []metrics.LogSource{}
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"sources": sources}); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func printLogs(lines int, source string) {
+	out, err := agentstats.ReadLogSource(lines, source)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "boomerang-monitor: %v\n", err)
 		os.Exit(1)

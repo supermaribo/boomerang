@@ -2,8 +2,16 @@
 
 package agentstats
 
-import "fmt"
+import (
+	"fmt"
 
-func ReadJournal(lines int, unit string) (string, error) {
+	"github.com/boomerang-backup/boomerang/internal/metrics"
+)
+
+func AvailableLogSources() []metrics.LogSource {
+	return []metrics.LogSource{}
+}
+
+func ReadLogSource(lines int, source string) (string, error) {
 	return "", fmt.Errorf("boomerang-monitor only supports Linux")
 }

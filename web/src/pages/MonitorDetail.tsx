@@ -25,6 +25,12 @@ type FS = {
   freeBytes: number;
 };
 
+type LogSource = {
+  id: string;
+  label: string;
+  kind: "journal" | "file";
+};
+
 function fmtBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -132,7 +138,9 @@ export default function MonitorDetail() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [logText, setLogText] = useState("");
-  const [logUnit, setLogUnit] = useState("");
+  const [logSources, setLogSources] = useState<LogSource[]>([]);
+  const [logSource, setLogSource] = useState("");
+  const [logSourceError, setLogSourceError] = useState("");
   const [logLines, setLogLines] = useState(200);
   const [logBusy, setLogBusy] = useState(false);
   const [edit, setEdit] = useState({
@@ -169,6 +177,25 @@ export default function MonitorDetail() {
   useEffect(() => {
     void load().catch((e) => setError(e instanceof Error ? e.message : "load failed"));
   }, [id, range]);
+
+  useEffect(() => {
+    setLogSources([]);
+    setLogSource("");
+    setLogSourceError("");
+    void api<{ sources: LogSource[] | null }>(`/api/monitoring/servers/${id}/logs/sources`)
+      .then((res) => {
+        const sources = asArray(res.sources);
+        setLogSources(sources);
+        setLogSource(sources[0]?.id || "");
+      })
+      .catch((e) =>
+        setLogSourceError(
+          e instanceof Error
+            ? e.message
+            : "Could not discover logs. Re-run the monitor install command on this host.",
+        ),
+      );
+  }, [id]);
 
   const installCmd = useMemo(() => server?.installCommand || "", [server]);
 
@@ -213,7 +240,7 @@ export default function MonitorDetail() {
     setError("");
     try {
       const q = new URLSearchParams({ lines: String(logLines) });
-      if (logUnit.trim()) q.set("unit", logUnit.trim());
+      q.set("source", logSource || "journal");
       const res = await api<{ text: string }>(`/api/monitoring/servers/${id}/logs?${q}`);
       setLogText(res.text || "(empty)");
     } catch (e) {
@@ -402,14 +429,25 @@ export default function MonitorDetail() {
           <section className="tile">
             <div className="row-head">
               <h2>Server logs</h2>
-              <button type="button" className="ghost" disabled={logBusy} onClick={() => void loadLogs()}>
+              <button
+                type="button"
+                className="ghost"
+                disabled={logBusy || logSources.length === 0}
+                onClick={() => void loadLogs()}
+              >
                 {logBusy ? "Loading…" : logText ? "Refresh" : "Load logs"}
               </button>
             </div>
             <p className="muted small">
-              Pulled over the same restricted SSH key via journalctl. Re-run the install command on the
-              host once so the agent includes log support and journal read access.
+              Read-only logs pulled over the same restricted SSH key. Only sources discovered and
+              allowlisted by the monitor agent are shown.
             </p>
+            {logSourceError && (
+              <p className="err">
+                {logSourceError} Re-run the install command on the host to add log discovery and
+                Apache/Nginx read access.
+              </p>
+            )}
             <div className="grid-2">
               <label>
                 Lines
@@ -422,13 +460,22 @@ export default function MonitorDetail() {
                 />
               </label>
               <label>
-                Unit (optional)
-                <input
-                  type="text"
-                  placeholder="e.g. sshd.service"
-                  value={logUnit}
-                  onChange={(e) => setLogUnit(e.target.value)}
-                />
+                Log
+                <select
+                  value={logSource}
+                  disabled={logSources.length === 0}
+                  onChange={(e) => {
+                    setLogSource(e.target.value);
+                    setLogText("");
+                  }}
+                >
+                  {logSources.length === 0 && <option value="">No readable logs discovered</option>}
+                  {logSources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.label}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             {logText ? (

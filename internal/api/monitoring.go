@@ -26,6 +26,7 @@ func (s *Server) routesMonitoring(r chi.Router) {
 	r.Post("/monitoring/servers/{id}/poll", s.handlePollMonitoredServer)
 	r.Post("/monitoring/servers/{id}/rotate-key", s.handleRotateMonitoredKey)
 	r.Get("/monitoring/servers/{id}/history", s.handleMonitoredHistory)
+	r.Get("/monitoring/servers/{id}/logs/sources", s.handleMonitoredLogSources)
 	r.Get("/monitoring/servers/{id}/logs", s.handleMonitoredLogs)
 	r.Get("/monitoring/install-hint", s.handleMonitorInstallHint)
 }
@@ -68,22 +69,22 @@ type monitoredServerDTO struct {
 }
 
 type monitoredWrite struct {
-	Name             string   `json:"name"`
-	Host             string   `json:"host"`
-	Port             int      `json:"port"`
-	Username         string   `json:"username"`
-	FileServerID     *string  `json:"fileServerId"`
-	Enabled          *bool    `json:"enabled"`
-	PollIntervalSec  int      `json:"pollIntervalSec"`
-	OfflineAfterSec  int      `json:"offlineAfterSec"`
-	AlertCPUPercent  float64  `json:"alertCpuPercent"`
-	AlertMemPercent  float64  `json:"alertMemPercent"`
-	AlertDiskPercent float64  `json:"alertDiskPercent"`
-	AlertLoadPerCPU  float64  `json:"alertLoadPerCpu"`
-	AlertSustainSec  int      `json:"alertSustainSec"`
-	AlertsEnabled    *bool    `json:"alertsEnabled"`
-	PrivateKey       string   `json:"privateKey,omitempty"`
-	PublicKey        string   `json:"publicKey,omitempty"`
+	Name             string  `json:"name"`
+	Host             string  `json:"host"`
+	Port             int     `json:"port"`
+	Username         string  `json:"username"`
+	FileServerID     *string `json:"fileServerId"`
+	Enabled          *bool   `json:"enabled"`
+	PollIntervalSec  int     `json:"pollIntervalSec"`
+	OfflineAfterSec  int     `json:"offlineAfterSec"`
+	AlertCPUPercent  float64 `json:"alertCpuPercent"`
+	AlertMemPercent  float64 `json:"alertMemPercent"`
+	AlertDiskPercent float64 `json:"alertDiskPercent"`
+	AlertLoadPerCPU  float64 `json:"alertLoadPerCpu"`
+	AlertSustainSec  int     `json:"alertSustainSec"`
+	AlertsEnabled    *bool   `json:"alertsEnabled"`
+	PrivateKey       string  `json:"privateKey,omitempty"`
+	PublicKey        string  `json:"publicKey,omitempty"`
 }
 
 func (s *Server) toMonitoredDTO(m store.MonitoredServer, includeInstall bool) monitoredServerDTO {
@@ -310,17 +311,30 @@ func (s *Server) handleMonitoredLogs(w http.ResponseWriter, r *http.Request) {
 			lines = n
 		}
 	}
-	unit := strings.TrimSpace(r.URL.Query().Get("unit"))
-	text, err := s.monitor.FetchLogs(id, lines, unit)
+	source := strings.TrimSpace(r.URL.Query().Get("source"))
+	text, err := s.monitor.FetchLogs(id, lines, source)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"lines": lines,
-		"unit":  unit,
-		"text":  text,
+		"lines":  lines,
+		"source": source,
+		"text":   text,
 	})
+}
+
+func (s *Server) handleMonitoredLogSources(w http.ResponseWriter, r *http.Request) {
+	if s.monitor == nil {
+		writeErr(w, http.StatusServiceUnavailable, "monitoring unavailable")
+		return
+	}
+	sources, err := s.monitor.FetchLogSources(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sources": sources})
 }
 
 func (s *Server) handleRotateMonitoredKey(w http.ResponseWriter, r *http.Request) {
@@ -382,8 +396,8 @@ func (s *Server) handleMonitoredHistory(w http.ResponseWriter, r *http.Request) 
 
 	sample, fs, _ := s.store.LatestMonitorSample(id)
 	out := map[string]any{
-		"range":      rangeName,
-		"server":     s.toMonitoredDTO(*m, false),
+		"range":       rangeName,
+		"server":      s.toMonitoredDTO(*m, false),
 		"filesystems": fs,
 	}
 	if sample != nil {
