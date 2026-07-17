@@ -2134,18 +2134,27 @@ button.crumb {
   margin-top: 0.25rem;
 }
 
-.monitor-chart {
+.monitor-chart-wrap {
   width: 100%;
-  max-width: 520px;
-  height: 120px;
+}
+
+.monitor-chart {
+  display: block;
+  width: 100%;
+  height: 140px;
   background: color-mix(in srgb, var(--bg) 40%, var(--panel));
   border-radius: 8px;
   border: 1px solid var(--line);
 }
 
+.monitor-chart-meta {
+  margin: 0.35rem 0 0;
+}
+
 .monitor-charts {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem 1.25rem;
 }
 
 .grid-2 {

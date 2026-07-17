@@ -36,32 +36,62 @@ function Sparkline({
   points,
   valueKey,
   color,
+  unit = "",
 }: {
   points: HistoryPoint[];
   valueKey: keyof HistoryPoint;
   color: string;
+  unit?: string;
 }) {
   const vals = points
     .map((p) => Number(p[valueKey] ?? 0))
     .filter((n) => Number.isFinite(n));
-  if (vals.length < 2) {
+  const fmt = (v: number) =>
+    unit === "%" ? `${v.toFixed(1)}%` : v >= 100 ? v.toFixed(0) : v.toFixed(2);
+  if (vals.length === 0) {
     return <p className="muted small">Not enough history yet.</p>;
   }
-  const w = 520;
-  const h = 120;
-  const max = Math.max(100, ...vals);
-  const min = 0;
-  const coords = vals
-    .map((v, i) => {
-      const x = (i / (vals.length - 1)) * (w - 8) + 4;
-      const y = h - 4 - ((v - min) / (max - min || 1)) * (h - 8);
-      return `${x},${y}`;
-    })
-    .join(" ");
+  if (vals.length === 1) {
+    return (
+      <p className="muted small">
+        Collecting data — 1 sample so far (now {fmt(vals[0])}).
+      </p>
+    );
+  }
+  const w = 600;
+  const h = 140;
+  const padX = 4;
+  const padY = 6;
+  const dataMax = Math.max(...vals);
+  // Scale to the data so small values (0.3% CPU, load 0.1) stay visible.
+  const yMax = dataMax <= 0 ? 1 : dataMax * 1.15;
+  const x = (i: number) => padX + (i / (vals.length - 1)) * (w - padX * 2);
+  const y = (v: number) => h - padY - (v / yMax) * (h - padY * 2);
+  const line = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const area = `${padX},${h - padY} ${line} ${(w - padX).toFixed(1)},${h - padY}`;
+  const latest = vals[vals.length - 1];
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="monitor-chart" role="img" aria-label="history chart">
-      <polyline fill="none" stroke={color} strokeWidth="2" points={coords} />
-    </svg>
+    <div className="monitor-chart-wrap">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        preserveAspectRatio="none"
+        className="monitor-chart"
+        role="img"
+        aria-label="history chart"
+      >
+        <polygon points={area} fill={color} opacity="0.12" />
+        <polyline
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          vectorEffect="non-scaling-stroke"
+          points={line}
+        />
+      </svg>
+      <p className="muted small monitor-chart-meta">
+        now {fmt(latest)} · peak {fmt(dataMax)} · {vals.length} points
+      </p>
+    </div>
   );
 }
 
@@ -151,7 +181,7 @@ export default function MonitorDetail() {
   };
 
   const rotateKey = async () => {
-    if (!confirm(`Rotate key for ${server?.name}? Re-run the installer afterwards.`)) return;
+    if (!window.confirm(`Rotate key for ${server?.name}? Re-run the installer afterwards.`)) return;
     setBusy(true);
     try {
       const s = await api<MonitoredServer>(`/api/monitoring/servers/${id}/rotate-key`, {
@@ -285,11 +315,11 @@ export default function MonitorDetail() {
             <div className="monitor-charts">
               <div>
                 <h3 className="muted small">CPU %</h3>
-                <Sparkline points={points} valueKey="cpu" color="var(--accent)" />
+                <Sparkline points={points} valueKey="cpu" color="var(--accent)" unit="%" />
               </div>
               <div>
                 <h3 className="muted small">Memory %</h3>
-                <Sparkline points={points} valueKey="mem" color="#7dd3a7" />
+                <Sparkline points={points} valueKey="mem" color="#7dd3a7" unit="%" />
               </div>
               <div>
                 <h3 className="muted small">Load 1</h3>
@@ -298,7 +328,7 @@ export default function MonitorDetail() {
               {range !== "24h" && (
                 <div>
                   <h3 className="muted small">Disk % (max)</h3>
-                  <Sparkline points={points} valueKey="disk" color="#e07a7a" />
+                  <Sparkline points={points} valueKey="disk" color="#e07a7a" unit="%" />
                 </div>
               )}
             </div>
