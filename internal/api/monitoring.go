@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ func (s *Server) routesMonitoring(r chi.Router) {
 	r.Post("/monitoring/servers/{id}/poll", s.handlePollMonitoredServer)
 	r.Post("/monitoring/servers/{id}/rotate-key", s.handleRotateMonitoredKey)
 	r.Get("/monitoring/servers/{id}/history", s.handleMonitoredHistory)
+	r.Get("/monitoring/servers/{id}/logs", s.handleMonitoredLogs)
 	r.Get("/monitoring/install-hint", s.handleMonitorInstallHint)
 }
 
@@ -294,6 +296,31 @@ func (s *Server) handlePollMonitoredServer(w http.ResponseWriter, r *http.Reques
 	}
 	m, _ := s.store.GetMonitoredServer(chi.URLParam(r, "id"))
 	writeJSON(w, http.StatusOK, s.toMonitoredDTO(*m, true))
+}
+
+func (s *Server) handleMonitoredLogs(w http.ResponseWriter, r *http.Request) {
+	if s.monitor == nil {
+		writeErr(w, http.StatusServiceUnavailable, "monitoring unavailable")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	lines := 200
+	if raw := r.URL.Query().Get("lines"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			lines = n
+		}
+	}
+	unit := strings.TrimSpace(r.URL.Query().Get("unit"))
+	text, err := s.monitor.FetchLogs(id, lines, unit)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"lines": lines,
+		"unit":  unit,
+		"text":  text,
+	})
 }
 
 func (s *Server) handleRotateMonitoredKey(w http.ResponseWriter, r *http.Request) {

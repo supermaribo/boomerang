@@ -110,6 +110,10 @@ if ! id "$INSTALL_USER" &>/dev/null; then
 else
   usermod -s /bin/sh "$INSTALL_USER"
 fi
+# journalctl read access for remote log viewing over the forced SSH key.
+if getent group systemd-journal >/dev/null 2>&1; then
+  usermod -aG systemd-journal "$INSTALL_USER"
+fi
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME"
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME/.ssh"
 install -d -o "$INSTALL_USER" -g "$INSTALL_USER" -m 750 "$INSTALL_HOME/spool"

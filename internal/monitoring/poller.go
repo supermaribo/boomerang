@@ -133,7 +133,7 @@ func (p *Poller) PollOne(id string) error {
 		cmd = fmt.Sprintf("boomerang-monitor ssh-export --since=%s", since.UTC().Format(time.RFC3339Nano))
 	}
 
-	out, err := p.runExport(*m, secret, cmd)
+	out, err := p.runSSH(*m, secret, cmd)
 	now := time.Now().UTC()
 	if err != nil {
 		_ = p.store.UpdateMonitoredServerPoll(id, now, err.Error(), "", "", nil)
@@ -197,7 +197,7 @@ func (p *Poller) openSecret(m *store.MonitoredServer) (remote.AuthSecret, error)
 	return remote.UnmarshalSecret(plain)
 }
 
-func (p *Poller) runExport(m store.MonitoredServer, secret remote.AuthSecret, cmd string) ([]byte, error) {
+func (p *Poller) runSSH(m store.MonitoredServer, secret remote.AuthSecret, cmd string) ([]byte, error) {
 	client, err := remote.DialSSH(m.Host, m.Port, m.Username, "key", secret, remote.HostKeyTrust{
 		KnownFingerprint: m.SSHHostKey,
 		Pin: func(fp string) error {
@@ -227,13 +227,57 @@ func (p *Poller) runExport(m store.MonitoredServer, secret remote.AuthSecret, cm
 			if msg == "" {
 				msg = err.Error()
 			}
-			return nil, fmt.Errorf("ssh export: %s", msg)
+			return nil, fmt.Errorf("ssh: %s", msg)
 		}
 	case <-time.After(45 * time.Second):
 		_ = session.Close()
-		return nil, fmt.Errorf("ssh export timed out")
+		return nil, fmt.Errorf("ssh timed out")
 	}
 	return stdout.Bytes(), nil
+}
+
+// FetchLogs pulls recent journal lines from the monitored host over SSH.
+func (p *Poller) FetchLogs(id string, lines int, unit string) (string, error) {
+	m, err := p.store.GetMonitoredServer(id)
+	if err != nil || m == nil {
+		return "", fmt.Errorf("server not found")
+	}
+	secret, err := p.openSecret(m)
+	if err != nil {
+		return "", err
+	}
+	if lines < 1 {
+		lines = 200
+	}
+	if lines > 1000 {
+		lines = 1000
+	}
+	cmd := fmt.Sprintf("boomerang-monitor ssh-logs --lines=%d", lines)
+	if unit != "" {
+		if err := validateLogUnit(unit); err != nil {
+			return "", err
+		}
+		cmd += " --unit=" + unit
+	}
+	out, err := p.runSSH(*m, secret, cmd)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func validateLogUnit(unit string) error {
+	if len(unit) == 0 || len(unit) > 128 {
+		return fmt.Errorf("invalid unit")
+	}
+	for _, r := range unit {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '.' || r == '-' || r == '_' || r == '@' {
+			continue
+		}
+		return fmt.Errorf("invalid unit")
+	}
+	return nil
 }
 
 // TestConnection verifies SSH + export works and returns a short status string.
@@ -246,7 +290,7 @@ func (p *Poller) TestConnection(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := p.runExport(*m, secret, "boomerang-monitor ssh-export")
+	out, err := p.runSSH(*m, secret, "boomerang-monitor ssh-export")
 	if err != nil {
 		return "", err
 	}

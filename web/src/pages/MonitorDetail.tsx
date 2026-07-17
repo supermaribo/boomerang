@@ -131,6 +131,10 @@ export default function MonitorDetail() {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const [logText, setLogText] = useState("");
+  const [logUnit, setLogUnit] = useState("");
+  const [logLines, setLogLines] = useState(200);
+  const [logBusy, setLogBusy] = useState(false);
   const [edit, setEdit] = useState({
     alertCpuPercent: 90,
     alertMemPercent: 90,
@@ -201,6 +205,21 @@ export default function MonitorDetail() {
       setError(e instanceof Error ? e.message : "poll failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const loadLogs = async () => {
+    setLogBusy(true);
+    setError("");
+    try {
+      const q = new URLSearchParams({ lines: String(logLines) });
+      if (logUnit.trim()) q.set("unit", logUnit.trim());
+      const res = await api<{ text: string }>(`/api/monitoring/servers/${id}/logs?${q}`);
+      setLogText(res.text || "(empty)");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to load logs");
+    } finally {
+      setLogBusy(false);
     }
   };
 
@@ -377,6 +396,45 @@ export default function MonitorDetail() {
                   );
                 })}
               </ul>
+            )}
+          </section>
+
+          <section className="tile">
+            <div className="row-head">
+              <h2>Server logs</h2>
+              <button type="button" className="ghost" disabled={logBusy} onClick={() => void loadLogs()}>
+                {logBusy ? "Loading…" : logText ? "Refresh" : "Load logs"}
+              </button>
+            </div>
+            <p className="muted small">
+              Pulled over the same restricted SSH key via journalctl. Re-run the install command on the
+              host once so the agent includes log support and journal read access.
+            </p>
+            <div className="grid-2">
+              <label>
+                Lines
+                <input
+                  type="number"
+                  min={50}
+                  max={1000}
+                  value={logLines}
+                  onChange={(e) => setLogLines(Number(e.target.value) || 200)}
+                />
+              </label>
+              <label>
+                Unit (optional)
+                <input
+                  type="text"
+                  placeholder="e.g. sshd.service"
+                  value={logUnit}
+                  onChange={(e) => setLogUnit(e.target.value)}
+                />
+              </label>
+            </div>
+            {logText ? (
+              <pre className="monitor-log-panel">{logText}</pre>
+            ) : (
+              <p className="muted">Click Load logs to fetch recent journal entries.</p>
             )}
           </section>
 

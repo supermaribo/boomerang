@@ -25,6 +25,8 @@ func main() {
 		runCollect()
 	case "ssh-export":
 		runSSHExport(os.Args[2:])
+	case "ssh-logs":
+		runSSHLogs(os.Args[2:])
 	case "ssh-forced":
 		// Invoked via authorized_keys command=…; only honors SSH_ORIGINAL_COMMAND.
 		runSSHForced()
@@ -43,6 +45,7 @@ Usage:
   boomerang-monitor daemon              Collect metrics every minute into the spool
   boomerang-monitor collect             Collect one sample (for testing)
   boomerang-monitor ssh-export [--since=RFC3339]
+  boomerang-monitor ssh-logs [--lines=N] [--unit=name.service]
   boomerang-monitor ssh-forced          Restricted SSH entrypoint (forced command)
   boomerang-monitor version
 `, version.Version)
@@ -95,12 +98,20 @@ func collectOnce(dir string) {
 
 func runSSHForced() {
 	cmd := os.Getenv("SSH_ORIGINAL_COMMAND")
-	since, err := agentstats.ValidateSSHCommand(cmd)
+	action, err := agentstats.ParseSSHCommand(cmd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "boomerang-monitor: %v\n", err)
 		os.Exit(1)
 	}
-	exportSince(since)
+	switch action.Kind {
+	case agentstats.SSHActionExport:
+		exportSince(action.Since)
+	case agentstats.SSHActionLogs:
+		printJournal(action.Lines, action.Unit)
+	default:
+		fmt.Fprintf(os.Stderr, "boomerang-monitor: forbidden SSH command\n")
+		os.Exit(1)
+	}
 }
 
 func runSSHExport(args []string) {
@@ -141,4 +152,25 @@ func exportSince(since time.Time) {
 	if err := enc.Encode(batch); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func runSSHLogs(args []string) {
+	cmd := "boomerang-monitor ssh-logs"
+	if len(args) > 0 {
+		cmd += " " + strings.Join(args, " ")
+	}
+	action, err := agentstats.ParseSSHCommand(cmd)
+	if err != nil {
+		log.Fatal(err)
+	}
+	printJournal(action.Lines, action.Unit)
+}
+
+func printJournal(lines int, unit string) {
+	out, err := agentstats.ReadJournal(lines, unit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "boomerang-monitor: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(out)
 }
