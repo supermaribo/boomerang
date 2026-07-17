@@ -2135,6 +2135,7 @@ button.crumb {
 }
 
 .monitor-chart-wrap {
+  position: relative;
   width: 100%;
 }
 
@@ -2145,6 +2146,30 @@ button.crumb {
   background: color-mix(in srgb, var(--bg) 40%, var(--panel));
   border-radius: 8px;
   border: 1px solid var(--line);
+}
+
+.monitor-chart-axis {
+  position: absolute;
+  top: 0;
+  left: 0.35rem;
+  box-sizing: border-box;
+  width: 2rem;
+  height: 140px;
+  padding: 0.1rem 0 0.15rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1;
+  text-align: right;
+  pointer-events: none;
+}
+
+.monitor-chart-gridline {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.65;
 }
 
 .monitor-chart-meta {

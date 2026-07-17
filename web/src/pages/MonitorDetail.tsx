@@ -60,16 +60,21 @@ function Sparkline({
   }
   const w = 600;
   const h = 140;
-  const padX = 4;
+  const isPercent = unit === "%";
+  const padLeft = isPercent ? 44 : 4;
+  const padRight = 4;
   const padY = 6;
   const dataMax = Math.max(...vals);
-  // Scale to the data so small values (0.3% CPU, load 0.1) stay visible.
-  const yMax = dataMax <= 0 ? 1 : dataMax * 1.15;
-  const x = (i: number) => padX + (i / (vals.length - 1)) * (w - padX * 2);
-  const y = (v: number) => h - padY - (v / yMax) * (h - padY * 2);
+  // Percentage charts use a stable 0–100 axis; load has no fixed upper bound.
+  const yMax = isPercent ? 100 : dataMax <= 0 ? 1 : dataMax * 1.15;
+  const x = (i: number) =>
+    padLeft + (i / (vals.length - 1)) * (w - padLeft - padRight);
+  const y = (v: number) =>
+    h - padY - (Math.min(Math.max(v, 0), yMax) / yMax) * (h - padY * 2);
   const line = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const area = `${padX},${h - padY} ${line} ${(w - padX).toFixed(1)},${h - padY}`;
+  const area = `${padLeft},${h - padY} ${line} ${(w - padRight).toFixed(1)},${h - padY}`;
   const latest = vals[vals.length - 1];
+  const percentTicks = [100, 75, 50, 25, 0];
   return (
     <div className="monitor-chart-wrap">
       <svg
@@ -79,6 +84,18 @@ function Sparkline({
         role="img"
         aria-label="history chart"
       >
+        {isPercent &&
+          percentTicks.map((tick) => (
+            <line
+              key={tick}
+              x1={padLeft}
+              x2={w - padRight}
+              y1={y(tick)}
+              y2={y(tick)}
+              className="monitor-chart-gridline"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
         <polygon points={area} fill={color} opacity="0.12" />
         <polyline
           fill="none"
@@ -88,6 +105,13 @@ function Sparkline({
           points={line}
         />
       </svg>
+      {isPercent && (
+        <div className="monitor-chart-axis" aria-hidden="true">
+          {percentTicks.map((tick) => (
+            <span key={tick}>{tick}%</span>
+          ))}
+        </div>
+      )}
       <p className="muted small monitor-chart-meta">
         now {fmt(latest)} · peak {fmt(dataMax)} · {vals.length} points
       </p>
@@ -416,6 +440,9 @@ export default function MonitorDetail() {
                     value={edit.alertSustainSec}
                     onChange={(e) => setEdit({ ...edit, alertSustainSec: Number(e.target.value) })}
                   />
+                  <span className="muted small">
+                    Must stay above the CPU, memory, disk, or load threshold for this long before alerting.
+                  </span>
                 </label>
                 <label>
                   Offline after seconds
