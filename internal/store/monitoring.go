@@ -36,31 +36,31 @@ type MonitoredServer struct {
 }
 
 type MonitorSampleRow struct {
-	ID             int64
-	ServerID       string
-	SampledAt      string
-	BootID         string
-	UptimeSec      int64
-	CPUPercent     float64
-	MemTotalBytes  int64
-	MemUsedBytes   int64
-	MemAvailBytes  int64
-	SwapTotalBytes int64
-	SwapUsedBytes  int64
-	Load1          float64
-	Load5          float64
-	Load15         float64
-	NumCPU         int
-	ClientVersion  string
+	ID             int64   `json:"id"`
+	ServerID       string  `json:"serverId"`
+	SampledAt      string  `json:"sampledAt"`
+	BootID         string  `json:"bootId,omitempty"`
+	UptimeSec      int64   `json:"uptimeSec"`
+	CPUPercent     float64 `json:"cpuPercent"`
+	MemTotalBytes  int64   `json:"memTotalBytes"`
+	MemUsedBytes   int64   `json:"memUsedBytes"`
+	MemAvailBytes  int64   `json:"memAvailBytes"`
+	SwapTotalBytes int64   `json:"swapTotalBytes"`
+	SwapUsedBytes  int64   `json:"swapUsedBytes"`
+	Load1          float64 `json:"load1"`
+	Load5          float64 `json:"load5"`
+	Load15         float64 `json:"load15"`
+	NumCPU         int     `json:"numCpu"`
+	ClientVersion  string  `json:"clientVersion,omitempty"`
 }
 
 type MonitorFSRow struct {
-	Mount      string
-	Device     string
-	FSType     string
-	TotalBytes int64
-	UsedBytes  int64
-	FreeBytes  int64
+	Mount      string `json:"mount"`
+	Device     string `json:"device,omitempty"`
+	FSType     string `json:"fsType,omitempty"`
+	TotalBytes int64  `json:"totalBytes"`
+	UsedBytes  int64  `json:"usedBytes"`
+	FreeBytes  int64  `json:"freeBytes"`
 }
 
 type MonitorHourlyRow struct {
