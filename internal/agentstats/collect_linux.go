@@ -45,6 +45,7 @@ func Collect(clientVersion string) (metrics.Sample, error) {
 	}
 	readMem(&s)
 	s.CPUPercent = readCPUPercent()
+	readDefaultRouteNet(&s)
 	s.Filesystems = readFilesystems()
 	return s, nil
 }
@@ -335,4 +336,3 @@ func readDayFile(path string) ([]metrics.Sample, error) {
 	}
 	return out, sc.Err()
 }
-

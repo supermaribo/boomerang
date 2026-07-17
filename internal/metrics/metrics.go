@@ -22,6 +22,9 @@ type Sample struct {
 	Load5          float64      `json:"load5"`
 	Load15         float64      `json:"load15"`
 	NumCPU         int          `json:"numCPU"`
+	NetIface       string       `json:"netIface,omitempty"`
+	NetRxBytes     uint64       `json:"netRxBytes,omitempty"`
+	NetTxBytes     uint64       `json:"netTxBytes,omitempty"`
 	Filesystems    []Filesystem `json:"filesystems"`
 	ClientVersion  string       `json:"clientVersion,omitempty"`
 }

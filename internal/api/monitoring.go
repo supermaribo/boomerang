@@ -62,6 +62,9 @@ type monitoredServerDTO struct {
 	NumCPU           int      `json:"numCpu,omitempty"`
 	PrimaryDiskMount string   `json:"primaryDiskMount,omitempty"`
 	PrimaryDiskPct   float64  `json:"primaryDiskPercent,omitempty"`
+	NetIface         string   `json:"netIface,omitempty"`
+	NetRxBps         *float64 `json:"netRxBps"`
+	NetTxBps         *float64 `json:"netTxBps"`
 	ActiveAlerts     []string `json:"activeAlerts"`
 	InstallCommand   string   `json:"installCommand,omitempty"`
 	CreatedAt        string   `json:"createdAt,omitempty"`
@@ -128,6 +131,9 @@ func (s *Server) toMonitoredDTO(m store.MonitoredServer, includeInstall bool) mo
 		dto.CPUPercent = sample.CPUPercent
 		dto.Load1 = sample.Load1
 		dto.NumCPU = sample.NumCPU
+		dto.NetIface = sample.NetIface
+		dto.NetRxBps = sample.NetRxBps
+		dto.NetTxBps = sample.NetTxBps
 		if sample.MemTotalBytes > 0 {
 			dto.MemPercent = 100 * float64(sample.MemUsedBytes) / float64(sample.MemTotalBytes)
 		}
@@ -402,6 +408,9 @@ func (s *Server) handleMonitoredHistory(w http.ResponseWriter, r *http.Request) 
 	}
 	if sample != nil {
 		out["latest"] = sample
+		if sample.NetIface != "" {
+			out["netIface"] = sample.NetIface
+		}
 	}
 	if useHourly {
 		rows, err := s.store.ListMonitorHourly(id, since, now)
@@ -415,6 +424,8 @@ func (s *Server) handleMonitoredHistory(w http.ResponseWriter, r *http.Request) 
 				"at": h.HourAt, "cpu": h.AvgCPUPercent, "cpuMax": h.MaxCPUPercent,
 				"mem": h.AvgMemPercent, "memMax": h.MaxMemPercent,
 				"load1": h.AvgLoad1, "disk": h.MaxDiskPercent, "samples": h.Samples,
+				"netRxBps": h.AvgNetRxBps, "netTxBps": h.AvgNetTxBps,
+				"netRxBpsMax": h.MaxNetRxBps, "netTxBpsMax": h.MaxNetTxBps,
 			})
 		}
 		out["points"] = points
@@ -430,10 +441,20 @@ func (s *Server) handleMonitoredHistory(w http.ResponseWriter, r *http.Request) 
 			if row.MemTotalBytes > 0 {
 				mem = 100 * float64(row.MemUsedBytes) / float64(row.MemTotalBytes)
 			}
-			points = append(points, map[string]any{
+			pt := map[string]any{
 				"at": row.SampledAt, "cpu": row.CPUPercent, "mem": mem,
 				"load1": row.Load1, "uptimeSec": row.UptimeSec, "numCpu": row.NumCPU,
-			})
+			}
+			if row.NetIface != "" {
+				pt["netIface"] = row.NetIface
+			}
+			if row.NetRxBps != nil {
+				pt["netRxBps"] = *row.NetRxBps
+			}
+			if row.NetTxBps != nil {
+				pt["netTxBps"] = *row.NetTxBps
+			}
+			points = append(points, pt)
 		}
 		out["points"] = points
 	}

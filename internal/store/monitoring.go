@@ -36,22 +36,27 @@ type MonitoredServer struct {
 }
 
 type MonitorSampleRow struct {
-	ID             int64   `json:"id"`
-	ServerID       string  `json:"serverId"`
-	SampledAt      string  `json:"sampledAt"`
-	BootID         string  `json:"bootId,omitempty"`
-	UptimeSec      int64   `json:"uptimeSec"`
-	CPUPercent     float64 `json:"cpuPercent"`
-	MemTotalBytes  int64   `json:"memTotalBytes"`
-	MemUsedBytes   int64   `json:"memUsedBytes"`
-	MemAvailBytes  int64   `json:"memAvailBytes"`
-	SwapTotalBytes int64   `json:"swapTotalBytes"`
-	SwapUsedBytes  int64   `json:"swapUsedBytes"`
-	Load1          float64 `json:"load1"`
-	Load5          float64 `json:"load5"`
-	Load15         float64 `json:"load15"`
-	NumCPU         int     `json:"numCpu"`
-	ClientVersion  string  `json:"clientVersion,omitempty"`
+	ID             int64    `json:"id"`
+	ServerID       string   `json:"serverId"`
+	SampledAt      string   `json:"sampledAt"`
+	BootID         string   `json:"bootId,omitempty"`
+	UptimeSec      int64    `json:"uptimeSec"`
+	CPUPercent     float64  `json:"cpuPercent"`
+	MemTotalBytes  int64    `json:"memTotalBytes"`
+	MemUsedBytes   int64    `json:"memUsedBytes"`
+	MemAvailBytes  int64    `json:"memAvailBytes"`
+	SwapTotalBytes int64    `json:"swapTotalBytes"`
+	SwapUsedBytes  int64    `json:"swapUsedBytes"`
+	Load1          float64  `json:"load1"`
+	Load5          float64  `json:"load5"`
+	Load15         float64  `json:"load15"`
+	NumCPU         int      `json:"numCpu"`
+	ClientVersion  string   `json:"clientVersion,omitempty"`
+	NetIface       string   `json:"netIface,omitempty"`
+	NetRxBytes     int64    `json:"netRxBytes"`
+	NetTxBytes     int64    `json:"netTxBytes"`
+	NetRxBps       *float64 `json:"netRxBps"`
+	NetTxBps       *float64 `json:"netTxBps"`
 }
 
 type MonitorFSRow struct {
@@ -73,6 +78,10 @@ type MonitorHourlyRow struct {
 	AvgLoad1       float64
 	MaxLoad1       float64
 	MaxDiskPercent float64
+	AvgNetRxBps    float64
+	MaxNetRxBps    float64
+	AvgNetTxBps    float64
+	MaxNetTxBps    float64
 }
 
 type MonitorAlertState struct {
@@ -220,6 +229,7 @@ func (s *Store) PinMonitoredHostKey(id, fingerprint string) error {
 }
 
 // InsertMonitorSample inserts a sample and its filesystems. Duplicate (server_id, sampled_at) is ignored.
+// Network rates are derived from the previous sample's cumulative counters when safe.
 func (s *Store) InsertMonitorSample(serverID string, sample metrics.Sample) (inserted bool, err error) {
 	sampledAt := sample.SampledAt.UTC().Format(time.RFC3339Nano)
 	tx, err := s.DB.Begin()
@@ -228,15 +238,19 @@ func (s *Store) InsertMonitorSample(serverID string, sample metrics.Sample) (ins
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	rxBps, txBps := deriveNetRates(tx, serverID, sample)
+
 	res, err := tx.Exec(`
 		INSERT OR IGNORE INTO monitor_samples(
 			server_id, sampled_at, boot_id, uptime_sec, cpu_percent,
 			mem_total_bytes, mem_used_bytes, mem_avail_bytes, swap_total_bytes, swap_used_bytes,
-			load1, load5, load15, num_cpu, client_version
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			load1, load5, load15, num_cpu, client_version,
+			net_iface, net_rx_bytes, net_tx_bytes, net_rx_bps, net_tx_bps
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		serverID, sampledAt, sample.BootID, sample.UptimeSec, sample.CPUPercent,
 		sample.MemTotalBytes, sample.MemUsedBytes, sample.MemAvailBytes, sample.SwapTotalBytes, sample.SwapUsedBytes,
 		sample.Load1, sample.Load5, sample.Load15, sample.NumCPU, sample.ClientVersion,
+		sample.NetIface, sample.NetRxBytes, sample.NetTxBytes, rxBps, txBps,
 	)
 	if err != nil {
 		return false, err
@@ -261,24 +275,84 @@ func (s *Store) InsertMonitorSample(serverID string, sample metrics.Sample) (ins
 	return true, tx.Commit()
 }
 
-func (s *Store) LatestMonitorSample(serverID string) (*MonitorSampleRow, []MonitorFSRow, error) {
-	var row MonitorSampleRow
-	err := s.DB.QueryRow(`
-		SELECT id, server_id, sampled_at, boot_id, uptime_sec, cpu_percent,
+// deriveNetRates returns bytes/sec from consecutive cumulative counters, or nil when unsafe.
+func deriveNetRates(tx *sql.Tx, serverID string, sample metrics.Sample) (rxBps, txBps any) {
+	if sample.NetIface == "" {
+		return nil, nil
+	}
+	var prevAt, prevIface string
+	var prevRx, prevTx int64
+	err := tx.QueryRow(`
+		SELECT sampled_at, net_iface, net_rx_bytes, net_tx_bytes
+		FROM monitor_samples
+		WHERE server_id=? AND sampled_at < ?
+		ORDER BY sampled_at DESC LIMIT 1`,
+		serverID, sample.SampledAt.UTC().Format(time.RFC3339Nano),
+	).Scan(&prevAt, &prevIface, &prevRx, &prevTx)
+	if err != nil {
+		return nil, nil
+	}
+	if prevIface == "" || prevIface != sample.NetIface {
+		return nil, nil
+	}
+	prevTime, err := ParseStoreTime(prevAt)
+	if err != nil {
+		return nil, nil
+	}
+	dt := sample.SampledAt.UTC().Sub(prevTime.UTC()).Seconds()
+	if dt < 1 || dt > 3600 {
+		return nil, nil
+	}
+	if int64(sample.NetRxBytes) < prevRx || int64(sample.NetTxBytes) < prevTx {
+		// Counter reset (reboot / interface recreate).
+		return nil, nil
+	}
+	rx := float64(int64(sample.NetRxBytes)-prevRx) / dt
+	txRate := float64(int64(sample.NetTxBytes)-prevTx) / dt
+	return rx, txRate
+}
+
+func scanMonitorSample(row scannable) (MonitorSampleRow, error) {
+	var r MonitorSampleRow
+	var rxBps, txBps sql.NullFloat64
+	err := row.Scan(
+		&r.ID, &r.ServerID, &r.SampledAt, &r.BootID, &r.UptimeSec, &r.CPUPercent,
+		&r.MemTotalBytes, &r.MemUsedBytes, &r.MemAvailBytes, &r.SwapTotalBytes, &r.SwapUsedBytes,
+		&r.Load1, &r.Load5, &r.Load15, &r.NumCPU, &r.ClientVersion,
+		&r.NetIface, &r.NetRxBytes, &r.NetTxBytes, &rxBps, &txBps,
+	)
+	if err != nil {
+		return r, err
+	}
+	if rxBps.Valid {
+		v := rxBps.Float64
+		r.NetRxBps = &v
+	}
+	if txBps.Valid {
+		v := txBps.Float64
+		r.NetTxBps = &v
+	}
+	return r, nil
+}
+
+const monitorSampleCols = `id, server_id, sampled_at, boot_id, uptime_sec, cpu_percent,
 		       mem_total_bytes, mem_used_bytes, mem_avail_bytes, swap_total_bytes, swap_used_bytes,
-		       load1, load5, load15, num_cpu, client_version
-		FROM monitor_samples WHERE server_id=? ORDER BY sampled_at DESC LIMIT 1`, serverID).
-		Scan(&row.ID, &row.ServerID, &row.SampledAt, &row.BootID, &row.UptimeSec, &row.CPUPercent,
-			&row.MemTotalBytes, &row.MemUsedBytes, &row.MemAvailBytes, &row.SwapTotalBytes, &row.SwapUsedBytes,
-			&row.Load1, &row.Load5, &row.Load15, &row.NumCPU, &row.ClientVersion)
+		       load1, load5, load15, num_cpu, client_version,
+		       net_iface, net_rx_bytes, net_tx_bytes, net_rx_bps, net_tx_bps`
+
+func (s *Store) LatestMonitorSample(serverID string) (*MonitorSampleRow, []MonitorFSRow, error) {
+	row := s.DB.QueryRow(`
+		SELECT `+monitorSampleCols+`
+		FROM monitor_samples WHERE server_id=? ORDER BY sampled_at DESC LIMIT 1`, serverID)
+	sample, err := scanMonitorSample(row)
 	if err == sql.ErrNoRows {
 		return nil, nil, nil
 	}
 	if err != nil {
 		return nil, nil, err
 	}
-	fs, err := s.listFSForSample(row.ID)
-	return &row, fs, err
+	fs, err := s.listFSForSample(sample.ID)
+	return &sample, fs, err
 }
 
 func (s *Store) listFSForSample(sampleID int64) ([]MonitorFSRow, error) {
@@ -302,9 +376,7 @@ func (s *Store) listFSForSample(sampleID int64) ([]MonitorFSRow, error) {
 
 func (s *Store) ListMonitorSamples(serverID string, since, until time.Time) ([]MonitorSampleRow, error) {
 	rows, err := s.DB.Query(`
-		SELECT id, server_id, sampled_at, boot_id, uptime_sec, cpu_percent,
-		       mem_total_bytes, mem_used_bytes, mem_avail_bytes, swap_total_bytes, swap_used_bytes,
-		       load1, load5, load15, num_cpu, client_version
+		SELECT `+monitorSampleCols+`
 		FROM monitor_samples
 		WHERE server_id=? AND sampled_at >= ? AND sampled_at <= ?
 		ORDER BY sampled_at ASC`,
@@ -315,10 +387,8 @@ func (s *Store) ListMonitorSamples(serverID string, since, until time.Time) ([]M
 	defer rows.Close()
 	var out []MonitorSampleRow
 	for rows.Next() {
-		var row MonitorSampleRow
-		if err := rows.Scan(&row.ID, &row.ServerID, &row.SampledAt, &row.BootID, &row.UptimeSec, &row.CPUPercent,
-			&row.MemTotalBytes, &row.MemUsedBytes, &row.MemAvailBytes, &row.SwapTotalBytes, &row.SwapUsedBytes,
-			&row.Load1, &row.Load5, &row.Load15, &row.NumCPU, &row.ClientVersion); err != nil {
+		row, err := scanMonitorSample(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -329,7 +399,8 @@ func (s *Store) ListMonitorSamples(serverID string, since, until time.Time) ([]M
 func (s *Store) ListMonitorHourly(serverID string, since, until time.Time) ([]MonitorHourlyRow, error) {
 	rows, err := s.DB.Query(`
 		SELECT hour_at, samples, avg_cpu_percent, max_cpu_percent, avg_mem_percent, max_mem_percent,
-		       avg_load1, max_load1, max_disk_percent
+		       avg_load1, max_load1, max_disk_percent,
+		       avg_net_rx_bps, max_net_rx_bps, avg_net_tx_bps, max_net_tx_bps
 		FROM monitor_hourly
 		WHERE server_id=? AND hour_at >= ? AND hour_at <= ?
 		ORDER BY hour_at ASC`,
@@ -342,7 +413,8 @@ func (s *Store) ListMonitorHourly(serverID string, since, until time.Time) ([]Mo
 	for rows.Next() {
 		var r MonitorHourlyRow
 		if err := rows.Scan(&r.HourAt, &r.Samples, &r.AvgCPUPercent, &r.MaxCPUPercent, &r.AvgMemPercent, &r.MaxMemPercent,
-			&r.AvgLoad1, &r.MaxLoad1, &r.MaxDiskPercent); err != nil {
+			&r.AvgLoad1, &r.MaxLoad1, &r.MaxDiskPercent,
+			&r.AvgNetRxBps, &r.MaxNetRxBps, &r.AvgNetTxBps, &r.MaxNetTxBps); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -380,15 +452,27 @@ func (s *Store) RollupMonitorHour(serverID string, hour time.Time) error {
 		WHERE server_id=? AND sampled_at >= ? AND sampled_at < ?`,
 		serverID, start, end).Scan(&maxDisk)
 
+	var avgRx, maxRx, avgTx, maxTx float64
+	_ = s.DB.QueryRow(`
+		SELECT COALESCE(AVG(net_rx_bps),0), COALESCE(MAX(net_rx_bps),0),
+		       COALESCE(AVG(net_tx_bps),0), COALESCE(MAX(net_tx_bps),0)
+		FROM monitor_samples
+		WHERE server_id=? AND sampled_at >= ? AND sampled_at < ? AND net_rx_bps IS NOT NULL`,
+		serverID, start, end).Scan(&avgRx, &maxRx, &avgTx, &maxTx)
+
 	_, err = s.DB.Exec(`
 		INSERT INTO monitor_hourly(server_id, hour_at, samples, avg_cpu_percent, max_cpu_percent,
-			avg_mem_percent, max_mem_percent, avg_load1, max_load1, max_disk_percent)
-		VALUES(?,?,?,?,?,?,?,?,?,?)
+			avg_mem_percent, max_mem_percent, avg_load1, max_load1, max_disk_percent,
+			avg_net_rx_bps, max_net_rx_bps, avg_net_tx_bps, max_net_tx_bps)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(server_id, hour_at) DO UPDATE SET
 			samples=excluded.samples, avg_cpu_percent=excluded.avg_cpu_percent, max_cpu_percent=excluded.max_cpu_percent,
 			avg_mem_percent=excluded.avg_mem_percent, max_mem_percent=excluded.max_mem_percent,
-			avg_load1=excluded.avg_load1, max_load1=excluded.max_load1, max_disk_percent=excluded.max_disk_percent`,
-		serverID, hour.Format(time.RFC3339), samples, avgCPU, maxCPU, avgMem, maxMem, avgLoad, maxLoad, maxDisk)
+			avg_load1=excluded.avg_load1, max_load1=excluded.max_load1, max_disk_percent=excluded.max_disk_percent,
+			avg_net_rx_bps=excluded.avg_net_rx_bps, max_net_rx_bps=excluded.max_net_rx_bps,
+			avg_net_tx_bps=excluded.avg_net_tx_bps, max_net_tx_bps=excluded.max_net_tx_bps`,
+		serverID, hour.Format(time.RFC3339), samples, avgCPU, maxCPU, avgMem, maxMem, avgLoad, maxLoad, maxDisk,
+		avgRx, maxRx, avgTx, maxTx)
 	return err
 }
 

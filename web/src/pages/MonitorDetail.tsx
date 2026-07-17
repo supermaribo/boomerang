@@ -14,6 +14,9 @@ type HistoryPoint = {
   mem?: number;
   load1?: number;
   disk?: number;
+  netRxBps?: number;
+  netTxBps?: number;
+  netIface?: string;
 };
 
 type FS = {
@@ -38,49 +41,67 @@ function fmtBytes(n: number) {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+function fmtRate(bps: number) {
+  if (!Number.isFinite(bps) || bps < 0) return "—";
+  if (bps < 1024) return `${bps.toFixed(0)} B/s`;
+  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+  if (bps < 1024 * 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(2)} MB/s`;
+  return `${(bps / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+}
+
 function Sparkline({
   points,
-  valueKey,
-  color,
+  series,
   unit = "",
+  emptyHint,
 }: {
   points: HistoryPoint[];
-  valueKey: keyof HistoryPoint;
-  color: string;
-  unit?: string;
+  series: { key: keyof HistoryPoint; color: string; label?: string }[];
+  unit?: "" | "%" | "rate";
+  emptyHint?: string;
 }) {
-  const vals = points
-    .map((p) => Number(p[valueKey] ?? 0))
-    .filter((n) => Number.isFinite(n));
-  const fmt = (v: number) =>
-    unit === "%" ? `${v.toFixed(1)}%` : v >= 100 ? v.toFixed(0) : v.toFixed(2);
-  if (vals.length === 0) {
-    return <p className="muted small">Not enough history yet.</p>;
+  const seriesVals = series.map((s) =>
+    points
+      .map((p) => {
+        const v = p[s.key];
+        return typeof v === "number" && Number.isFinite(v) ? v : null;
+      })
+      .filter((n): n is number => n != null),
+  );
+  const allVals = seriesVals.flat();
+  const fmt = (v: number) => {
+    if (unit === "%") return `${v.toFixed(1)}%`;
+    if (unit === "rate") return fmtRate(v);
+    return v >= 100 ? v.toFixed(0) : v.toFixed(2);
+  };
+  if (allVals.length === 0) {
+    return <p className="muted small">{emptyHint || "Not enough history yet."}</p>;
   }
-  if (vals.length === 1) {
+  if (allVals.length < 2 && series.length === 1 && seriesVals[0].length < 2) {
     return (
       <p className="muted small">
-        Collecting data — 1 sample so far (now {fmt(vals[0])}).
+        Collecting data — 1 sample so far (now {fmt(allVals[0])}).
       </p>
     );
   }
   const w = 600;
   const h = 140;
   const isPercent = unit === "%";
-  const padLeft = isPercent ? 44 : 4;
+  const padLeft = isPercent ? 44 : unit === "rate" ? 52 : 4;
   const padRight = 4;
   const padY = 6;
-  const dataMax = Math.max(...vals);
-  // Percentage charts use a stable 0–100 axis; load has no fixed upper bound.
+  const dataMax = Math.max(...allVals, 0);
   const yMax = isPercent ? 100 : dataMax <= 0 ? 1 : dataMax * 1.15;
-  const x = (i: number) =>
-    padLeft + (i / (vals.length - 1)) * (w - padLeft - padRight);
+  const x = (i: number, n: number) =>
+    padLeft + (i / Math.max(n - 1, 1)) * (w - padLeft - padRight);
   const y = (v: number) =>
     h - padY - (Math.min(Math.max(v, 0), yMax) / yMax) * (h - padY * 2);
-  const line = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const area = `${padLeft},${h - padY} ${line} ${(w - padRight).toFixed(1)},${h - padY}`;
-  const latest = vals[vals.length - 1];
   const percentTicks = [100, 75, 50, 25, 0];
+  const rateTicks =
+    unit === "rate"
+      ? [yMax, yMax * 0.75, yMax * 0.5, yMax * 0.25, 0].map((t) => Math.max(0, t))
+      : [];
+
   return (
     <div className="monitor-chart-wrap">
       <svg
@@ -102,14 +123,48 @@ function Sparkline({
               vectorEffect="non-scaling-stroke"
             />
           ))}
-        <polygon points={area} fill={color} opacity="0.12" />
-        <polyline
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          vectorEffect="non-scaling-stroke"
-          points={line}
-        />
+        {unit === "rate" &&
+          rateTicks.map((tick, i) => (
+            <line
+              key={`r${i}`}
+              x1={padLeft}
+              x2={w - padRight}
+              y1={y(tick)}
+              y2={y(tick)}
+              className="monitor-chart-gridline"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        {series.map((s) => {
+          const vals = points
+            .map((p) => {
+              const v = p[s.key];
+              return typeof v === "number" && Number.isFinite(v) ? v : null;
+            });
+          const indexed = vals
+            .map((v, i) => (v == null ? null : { i, v }))
+            .filter((p): p is { i: number; v: number } => p != null);
+          if (indexed.length < 2) return null;
+          const line = indexed
+            .map(({ i, v }) => `${x(i, points.length).toFixed(1)},${y(v).toFixed(1)}`)
+            .join(" ");
+          const area = `${x(indexed[0].i, points.length).toFixed(1)},${h - padY} ${line} ${x(
+            indexed[indexed.length - 1].i,
+            points.length,
+          ).toFixed(1)},${h - padY}`;
+          return (
+            <g key={String(s.key)}>
+              <polygon points={area} fill={s.color} opacity="0.1" />
+              <polyline
+                fill="none"
+                stroke={s.color}
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+                points={line}
+              />
+            </g>
+          );
+        })}
       </svg>
       {isPercent && (
         <div className="monitor-chart-axis" aria-hidden="true">
@@ -118,8 +173,24 @@ function Sparkline({
           ))}
         </div>
       )}
+      {unit === "rate" && (
+        <div className="monitor-chart-axis monitor-chart-axis-wide" aria-hidden="true">
+          {rateTicks.map((tick, i) => (
+            <span key={i}>{fmtRate(tick)}</span>
+          ))}
+        </div>
+      )}
       <p className="muted small monitor-chart-meta">
-        now {fmt(latest)} · peak {fmt(dataMax)} · {vals.length} points
+        {series
+          .map((s) => {
+            const vals = seriesVals[series.indexOf(s)];
+            if (vals.length === 0) return `${s.label || String(s.key)} —`;
+            const latest = vals[vals.length - 1];
+            const peak = Math.max(...vals);
+            return `${s.label || String(s.key)} now ${fmt(latest)} · peak ${fmt(peak)}`;
+          })
+          .join(" · ")}
+        {` · ${points.length} points`}
       </p>
     </div>
   );
@@ -133,6 +204,7 @@ export default function MonitorDetail() {
   const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
   const [points, setPoints] = useState<HistoryPoint[]>([]);
   const [filesystems, setFilesystems] = useState<FS[]>([]);
+  const [netIface, setNetIface] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -167,11 +239,14 @@ export default function MonitorDetail() {
       alertsEnabled: s.alertsEnabled ?? true,
       enabled: s.enabled,
     });
-    const hist = await api<{ points: HistoryPoint[] | null; filesystems: FS[] | null }>(
-      `/api/monitoring/servers/${id}/history?range=${range}`,
-    );
+    const hist = await api<{
+      points: HistoryPoint[] | null;
+      filesystems: FS[] | null;
+      netIface?: string;
+    }>(`/api/monitoring/servers/${id}/history?range=${range}`);
     setPoints(asArray(hist.points));
     setFilesystems(asArray(hist.filesystems));
+    setNetIface(hist.netIface || s.netIface || "");
   };
 
   useEffect(() => {
@@ -385,20 +460,53 @@ export default function MonitorDetail() {
             <div className="monitor-charts">
               <div>
                 <h3 className="muted small">CPU %</h3>
-                <Sparkline points={points} valueKey="cpu" color="var(--accent)" unit="%" />
+                <Sparkline
+                  points={points}
+                  series={[{ key: "cpu", color: "var(--accent)", label: "CPU" }]}
+                  unit="%"
+                />
               </div>
               <div>
                 <h3 className="muted small">Memory %</h3>
-                <Sparkline points={points} valueKey="mem" color="#7dd3a7" unit="%" />
+                <Sparkline
+                  points={points}
+                  series={[{ key: "mem", color: "#7dd3a7", label: "RAM" }]}
+                  unit="%"
+                />
               </div>
               <div>
                 <h3 className="muted small">Load 1</h3>
-                <Sparkline points={points} valueKey="load1" color="#e8b86d" />
+                <Sparkline
+                  points={points}
+                  series={[{ key: "load1", color: "#e8b86d", label: "Load" }]}
+                />
+              </div>
+              <div>
+                <h3 className="muted small">
+                  Network throughput{netIface ? ` · ${netIface}` : ""}
+                </h3>
+                <Sparkline
+                  points={points}
+                  series={[
+                    { key: "netRxBps", color: "#6cb6ff", label: "RX" },
+                    { key: "netTxBps", color: "#c792ea", label: "TX" },
+                  ]}
+                  unit="rate"
+                  emptyHint={
+                    netIface
+                      ? "Collecting network rates — needs two samples after the agent upgrade."
+                      : "No network data yet. Re-run the monitor install command on this host."
+                  }
+                />
               </div>
               {range !== "24h" && (
                 <div>
                   <h3 className="muted small">Disk % (max)</h3>
-                  <Sparkline points={points} valueKey="disk" color="#e07a7a" unit="%" />
+                  <Sparkline
+                    points={points}
+                    series={[{ key: "disk", color: "#e07a7a", label: "Disk" }]}
+                    unit="%"
+                  />
                 </div>
               )}
             </div>

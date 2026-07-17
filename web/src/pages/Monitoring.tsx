@@ -25,6 +25,9 @@ export type MonitoredServer = {
   uptimeSec?: number;
   primaryDiskMount?: string;
   primaryDiskPercent?: number;
+  netIface?: string;
+  netRxBps?: number | null;
+  netTxBps?: number | null;
   lastSampleAt?: string;
   lastPollError?: string;
   clientVersion?: string;
@@ -53,6 +56,14 @@ function fmtUptime(sec?: number) {
 function pct(n?: number) {
   if (n == null || Number.isNaN(n)) return "—";
   return `${n.toFixed(0)}%`;
+}
+
+function fmtRate(bps?: number | null) {
+  if (bps == null || !Number.isFinite(bps) || bps < 0) return "—";
+  if (bps < 1024) return `${bps.toFixed(0)} B/s`;
+  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+  if (bps < 1024 * 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(2)} MB/s`;
+  return `${(bps / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
 }
 
 export default function Monitoring() {
@@ -182,6 +193,9 @@ export default function Monitoring() {
                     load {s.load1?.toFixed(2) ?? "—"}
                     {s.primaryDiskMount
                       ? ` · ${s.primaryDiskMount} ${pct(s.primaryDiskPercent)}`
+                      : ""}
+                    {s.netIface
+                      ? ` · ${s.netIface} ↓${fmtRate(s.netRxBps)} ↑${fmtRate(s.netTxBps)}`
                       : ""}
                   </p>
                   {(s.activeAlerts?.length ?? 0) > 0 && (
