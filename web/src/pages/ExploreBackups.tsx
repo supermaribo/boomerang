@@ -164,6 +164,19 @@ export default function ExploreBackups() {
 
   const toggle = (p: string) => setSelected((s) => ({ ...s, [p]: !s[p] }));
 
+  const allVisibleSelected = entries.length > 0 && entries.every((e) => !!selected[e.path]);
+
+  const toggleAllVisible = () =>
+    setSelected((s) => {
+      const next = { ...s };
+      if (allVisibleSelected) {
+        for (const e of entries) delete next[e.path];
+      } else {
+        for (const e of entries) next[e.path] = true;
+      }
+      return next;
+    });
+
   const openDir = (p: string) => {
     setQ("");
     setPath(p);
@@ -502,6 +515,22 @@ export default function ExploreBackups() {
 
             <div className="file-table">
               {entries.length === 0 && <p className="muted">Empty folder or no matches.</p>}
+              {entries.length > 0 && (
+                <div className="file-row select-all-row">
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      aria-label="Select all in this folder"
+                    />
+                  </label>
+                  <button type="button" className="linkish" onClick={toggleAllVisible}>
+                    {allVisibleSelected ? "Deselect all" : "Select all"}
+                    <span className="muted small"> · {entries.length} item(s) shown</span>
+                  </button>
+                </div>
+              )}
               {entries.map((e) => (
                 <div className="file-row" key={e.path}>
                   <label className="check">

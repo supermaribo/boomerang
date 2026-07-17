@@ -2032,6 +2032,13 @@ button.crumb {
   border-bottom: 0;
 }
 
+.select-all-row {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
 .linkish {
   width: auto;
   background: transparent;
