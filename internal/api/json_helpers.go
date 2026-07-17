@@ -26,7 +26,21 @@ func normalizeNilSlices(v any) any {
 			out[key.String()] = normalizeNilSlices(val.MapIndex(key).Interface())
 		}
 		return out
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Ptr:
+		if val.IsNil() {
+			// Return the typed nil pointer, not an untyped nil, so callers
+			// that assign back into struct fields get a valid reflect.Value.
+			return v
+		}
+		inner := normalizeNilSlices(val.Elem().Interface())
+		rv := reflect.ValueOf(inner)
+		if rv.IsValid() && rv.Type().AssignableTo(val.Type().Elem()) {
+			p := reflect.New(val.Type().Elem())
+			p.Elem().Set(rv)
+			return p.Interface()
+		}
+		return v
+	case reflect.Interface:
 		if val.IsNil() {
 			return nil
 		}
@@ -35,13 +49,21 @@ func normalizeNilSlices(v any) any {
 		if val.Type() == reflect.TypeOf(sql.NullString{}) {
 			return v
 		}
-		t := val.Type()
-		out := reflect.New(t).Elem()
-		for i := 0; i < val.NumField(); i++ {
-			if !out.Field(i).CanSet() {
+		out := reflect.New(val.Type()).Elem()
+		out.Set(val)
+		for i := 0; i < out.NumField(); i++ {
+			f := out.Field(i)
+			if !f.CanSet() {
 				continue
 			}
-			out.Field(i).Set(reflect.ValueOf(normalizeNilSlices(val.Field(i).Interface())))
+			nv := normalizeNilSlices(f.Interface())
+			if nv == nil {
+				continue
+			}
+			rv := reflect.ValueOf(nv)
+			if rv.Type().AssignableTo(f.Type()) {
+				f.Set(rv)
+			}
 		}
 		return out.Interface()
 	default:
