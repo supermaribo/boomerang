@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/boomerang-backup/boomerang/internal/notify"
+	"github.com/boomerang-backup/boomerang/internal/schedule"
+	"github.com/boomerang-backup/boomerang/internal/tzutil"
 )
 
 func (s *Scheduler) SetMissedNotifier(load func() (notify.MailConfig, error), nameFor func(targetType, targetID string) string) {
@@ -32,9 +34,10 @@ func (s *Scheduler) checkMissedBackups() {
 	if err != nil || !cfg.Ready() || !cfg.Alerts.BackupFailure {
 		return
 	}
-	cut := time.Now().UTC().Add(-36 * time.Hour)
+	now := time.Now().UTC()
+	loc := tzutil.Load(s.store)
 
-	check := func(targetType, id, name, scheduleStart string) {
+	check := func(targetType, id, name, cron, scheduleStart string) {
 		if !scheduleActive(scheduleStart) {
 			return
 		}
@@ -56,17 +59,20 @@ func (s *Scheduler) checkMissedBackups() {
 			return
 		}
 
-		// A no-change skip still counts as a successful check — do not alert if one ran recently.
+		// A no-change skip still counts as a successful check.
+		lastCheckAt := lastVer.CreatedAt
 		if check, _ := s.store.LastBackupCheck(targetType, id); check != nil {
 			when := check.CreatedAt
 			if check.FinishedAt.Valid && check.FinishedAt.String != "" {
 				when = check.FinishedAt.String
 			}
-			if t, ok := parseStart(when); ok && t.After(cut) {
-				return
+			if when != "" {
+				lastCheckAt = when
 			}
 		}
-		if t, ok := parseStart(lastVer.CreatedAt); ok && t.After(cut) {
+		// Alert only if a scheduled run has been missed (schedule-aware, so
+		// weekly/monthly targets are not flagged between runs).
+		if t, ok := parseStart(lastCheckAt); ok && !schedule.Overdue(cron, loc, t, now) {
 			return
 		}
 
@@ -76,8 +82,8 @@ func (s *Scheduler) checkMissedBackups() {
 				return
 			}
 		}
-		subject := "[Boomerang] No recent backup: " + name
-		body := "No successful backup check for " + name + " in the last 36 hours.\n\nCheck schedules and job logs in Boomerang."
+		subject := "[Boomerang] Missed backup: " + name
+		body := name + " missed its scheduled backup check.\n\nCheck schedules and job logs in Boomerang."
 		if err := cfg.Send(subject, body); err != nil {
 			log.Printf("missed backup alert %s: %v", name, err)
 			return
@@ -88,13 +94,13 @@ func (s *Scheduler) checkMissedBackups() {
 	files, _ := s.store.ListFileServers()
 	for _, f := range files {
 		if f.Enabled && strings.TrimSpace(f.ScheduleCron) != "" {
-			check("file", f.ID, f.Name, f.ScheduleStart)
+			check("file", f.ID, f.Name, f.ScheduleCron, f.ScheduleStart)
 		}
 	}
 	dbs, _ := s.store.ListDatabases()
 	for _, d := range dbs {
 		if d.Enabled && strings.TrimSpace(d.ScheduleCron) != "" {
-			check("db", d.ID, d.Name, d.ScheduleStart)
+			check("db", d.ID, d.Name, d.ScheduleCron, d.ScheduleStart)
 		}
 	}
 }

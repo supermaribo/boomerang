@@ -96,9 +96,10 @@ func (s *Server) healthForTarget(targetType, id, name string, enabled bool, cron
 	}
 
 	if t, ok := parseHealthTime(lastCheckAt); ok {
-		if time.Since(t) > 36*time.Hour {
+		loc := tzutil.Load(s.store)
+		if schedule.Overdue(cron, loc, t, time.Now().UTC()) {
 			row.Health = "error"
-			row.HealthDetail = "No successful backup check in the last 36 hours"
+			row.HealthDetail = "Missed a scheduled backup check"
 			return row
 		}
 	}
