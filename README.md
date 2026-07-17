@@ -49,6 +49,7 @@ You get a timeline of versions, browse files inside a backup, restore selected p
 - ☁️ **Off-site mirror** — optional automatic copy to **Cloudflare R2** after each backup (3-2-1); dashboard banner when sync is stale or failed
 - 🔄 **Restore from R2** — import a previous appliance on first install (before admin password is set)
 - 📊 **Storage forecast** — retention-aware estimate of disk use over the next 30 days
+- 📡 **Server monitoring** — optional Linux agent reports CPU, RAM, disk, load, and uptime over existing SSH (no new ports); history graphs and threshold emails
 - 🗑️ **Delete versions** — remove individual backups you no longer need
 - ⬆️ **In-app updates** — Settings → Updates checks GitHub releases and installs on systemd appliances
 
@@ -252,6 +253,20 @@ Low-level install (binary + systemd only):
 
 ```bash
 sudo bash deploy/install.sh /path/to/boomerang
+```
+
+### Server monitoring agent
+
+On each Linux VPS you want to monitor (requires sudo once):
+
+1. In Boomerang open **Monitoring → Add server** and copy the install command.
+2. Run it on the target host. It installs `boomerang-monitor`, creates a locked-down `boomerang-monitor` user, and starts a systemd collector.
+3. Back in Boomerang, click **Test connection**. Metrics are pulled over the existing SSH port with a forced-command key (no new ports).
+
+```bash
+# Or manually:
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh \
+  | sudo bash -s -- --public-key 'ssh-ed25519 AAAA…'
 ```
 
 **Upgrade without git** (Proxmox one-liner / appliances with no repo checkout):

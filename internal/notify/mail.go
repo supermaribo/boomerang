@@ -22,6 +22,7 @@ type AlertPrefs struct {
 	RestoreSuccess  bool
 	RestoreFailure  bool
 	OffsiteFailure  bool
+	MonitorFailure  bool
 }
 
 type MailConfig struct {

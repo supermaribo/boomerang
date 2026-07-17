@@ -119,6 +119,7 @@ type settingsDTO struct {
 	AlertRestoreSuccess bool   `json:"alertRestoreSuccess"`
 	AlertRestoreFailure bool   `json:"alertRestoreFailure"`
 	AlertOffsiteFailure bool   `json:"alertOffsiteFailure"`
+	AlertMonitorFailure bool   `json:"alertMonitorFailure"`
 	Timezone            string `json:"timezone"`
 }
 
@@ -190,6 +191,7 @@ func (s *Server) loadMail() (notify.MailConfig, error) {
 			RestoreSuccess: boolMeta("alert_restore_success", false),
 			RestoreFailure: boolMeta("alert_restore_failure", true),
 			OffsiteFailure: boolMeta("alert_offsite_failure", true),
+			MonitorFailure: boolMeta("alert_monitor_failure", true),
 		},
 	}, nil
 }
@@ -253,6 +255,7 @@ func settingsToDTO(cfg notify.MailConfig) settingsDTO {
 		AlertRestoreSuccess: cfg.Alerts.RestoreSuccess,
 		AlertRestoreFailure: cfg.Alerts.RestoreFailure,
 		AlertOffsiteFailure: cfg.Alerts.OffsiteFailure,
+		AlertMonitorFailure: cfg.Alerts.MonitorFailure,
 	}
 }
 
@@ -288,6 +291,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.SetMeta("alert_restore_success", boolStr(req.AlertRestoreSuccess))
 	_ = s.store.SetMeta("alert_restore_failure", boolStr(req.AlertRestoreFailure))
 	_ = s.store.SetMeta("alert_offsite_failure", boolStr(req.AlertOffsiteFailure))
+	_ = s.store.SetMeta("alert_monitor_failure", boolStr(req.AlertMonitorFailure))
 	_ = s.store.SetMeta("smtp_host", req.SMTPHost)
 	_ = s.store.SetMeta("smtp_port", strconv.Itoa(req.SMTPPort))
 	_ = s.store.SetMeta("smtp_user", req.SMTPUser)

@@ -8,6 +8,8 @@ import ExploreBackups from "./pages/ExploreBackups";
 import FileServers from "./pages/FileServers";
 import FileServerWizard from "./pages/FileServerWizard";
 import Gate from "./pages/Gate";
+import Monitoring from "./pages/Monitoring";
+import MonitorDetail from "./pages/MonitorDetail";
 import SettingsPage from "./pages/Settings";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { TimezoneProvider } from "./context/Timezone";
@@ -111,6 +113,8 @@ export default function App() {
             <Route path="databases/new" element={<DatabaseWizard />} />
             <Route path="databases/:id/backups" element={<DatabaseBackups />} />
             <Route path="databases/:id/edit" element={<DatabaseWizard />} />
+            <Route path="monitoring" element={<Monitoring />} />
+            <Route path="monitoring/:id" element={<MonitorDetail />} />
             <Route path="settings" element={<SettingsPage onLogout={handleLogout} />} />
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Route>

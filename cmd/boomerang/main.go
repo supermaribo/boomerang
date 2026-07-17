@@ -11,6 +11,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/config"
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/jobs"
+	"github.com/boomerang-backup/boomerang/internal/monitoring"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
 )
@@ -50,6 +51,7 @@ func main() {
 	runner := jobs.NewRunner(st, box, cfg.DataDir, cfg.MaxConcurrentJobs)
 	runner.Offsite = offsiteSyncer
 	sched := jobs.NewScheduler(runner, st)
+	monitorPoller := monitoring.NewPoller(st, box)
 
 	var webFS fs.FS
 	if sub, err := fs.Sub(webEmbed, "webdist"); err == nil {
@@ -61,6 +63,7 @@ func main() {
 	srv := api.New(cfg, st, box, webFS, runner)
 	srv.SetScheduler(sched)
 	srv.SetOffsite(offsiteSyncer)
+	srv.SetMonitor(monitorPoller)
 	nameFor := func(targetType, targetID string) string {
 		switch targetType {
 		case "file":
@@ -77,9 +80,12 @@ func main() {
 	runner.SetNotifier(srv.LoadMail, nameFor)
 	sched.SetMissedNotifier(srv.LoadMail, nameFor)
 	offsiteSyncer.SetNotifier(srv.LoadMail)
+	monitorPoller.SetNotifier(srv.LoadMail)
 
 	sched.Start()
 	defer sched.Stop()
+	monitorPoller.Start()
+	defer monitorPoller.Stop()
 
 	log.Printf("Boomerang listening on http://%s (data: %s, max concurrent jobs: %d)", cfg.ListenAddr, cfg.DataDir, cfg.MaxConcurrentJobs)
 	if err := http.ListenAndServe(cfg.ListenAddr, srv.Handler()); err != nil {

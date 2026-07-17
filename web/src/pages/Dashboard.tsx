@@ -25,6 +25,7 @@ type Dash = {
   dataDir: string;
   applianceStatus?: StatusItem[];
   offsiteBanner?: { show: boolean; level?: string; message?: string };
+  monitoring?: { total: number; online: number };
 };
 
 type StatusItem = {
@@ -262,6 +263,16 @@ export default function Dashboard({ onLogout }: Props) {
             <a className="text-link" href="#recent-backups">
               View recent →
             </a>
+          </article>
+          <article className="dash-tile">
+            <h2>Monitoring</h2>
+            <p className="stat">
+              {data?.monitoring ? `${data.monitoring.online}/${data.monitoring.total}` : "—"}
+            </p>
+            <p className="muted small dash-meta">online servers</p>
+            <Link className="text-link" to="/app/monitoring">
+              Open →
+            </Link>
           </article>
           <article className="dash-tile">
             <h2>Storage</h2>

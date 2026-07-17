@@ -16,6 +16,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/config"
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/jobs"
+	"github.com/boomerang-backup/boomerang/internal/monitoring"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
 	"github.com/boomerang-backup/boomerang/internal/tzutil"
@@ -25,17 +26,18 @@ import (
 )
 
 type Server struct {
-	cfg    *config.Config
-	store  *store.Store
-	box    *crypto.Box
-	webFS  fs.FS
-	runner *jobs.Runner
-	sched  *jobs.Scheduler
+	cfg     *config.Config
+	store   *store.Store
+	box     *crypto.Box
+	webFS   fs.FS
+	runner  *jobs.Runner
+	sched   *jobs.Scheduler
 	offsite *offsite.Syncer
-	mu     sync.Mutex
-	sess   map[string]session
-	loginN map[string][]time.Time
-	setupN map[string][]time.Time
+	monitor *monitoring.Poller
+	mu      sync.Mutex
+	sess    map[string]session
+	loginN  map[string][]time.Time
+	setupN  map[string][]time.Time
 	passwordN map[string][]time.Time
 }
 
@@ -66,6 +68,10 @@ func (s *Server) SetOffsite(syncer *offsite.Syncer) {
 	s.offsite = syncer
 }
 
+func (s *Server) SetMonitor(p *monitoring.Poller) {
+	s.monitor = p
+}
+
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -89,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/target-health", s.handleTargetHealth)
 			s.routesTargets(r)
 			s.routesExtra(r)
+			s.routesMonitoring(r)
 		})
 	})
 
@@ -265,6 +272,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 	forecast, _ := s.store.StorageForecast(7)
 	recent, _ := s.store.ListRecentVersions(10, "")
 	jobs, _ := s.store.ListRecentJobs(10)
+	monTotal, _ := s.store.CountMonitoredServers()
+	monOnline, _ := s.store.CountOnlineMonitoredServers(time.Now().UTC())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"websites":         fsCount,
 		"fileServers":      fsCount,
@@ -277,6 +286,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, _ *http.Request) {
 		"recentJobs":       jobsToJSON(jobs),
 		"applianceStatus":  s.applianceStatus(),
 		"offsiteBanner":    s.offsiteBanner(backupCount),
+		"monitoring": map[string]any{
+			"total":  monTotal,
+			"online": monOnline,
+		},
 	})
 }
 

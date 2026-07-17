@@ -23,6 +23,7 @@ type Settings = {
   alertRestoreSuccess: boolean;
   alertRestoreFailure: boolean;
   alertOffsiteFailure: boolean;
+  alertMonitorFailure: boolean;
   timezone?: string;
 };
 
@@ -44,6 +45,7 @@ const ALERTS: {
     | "alertRestoreFailure"
     | "alertRestoreSuccess"
     | "alertOffsiteFailure"
+    | "alertMonitorFailure"
   >;
   label: string;
   desc: string;
@@ -53,6 +55,7 @@ const ALERTS: {
   { key: "alertRestoreFailure", label: "Restore failed", desc: "When a restore job errors" },
   { key: "alertRestoreSuccess", label: "Restore succeeded", desc: "After a restore completes" },
   { key: "alertOffsiteFailure", label: "Off-site mirror failed", desc: "When R2 sync fails (deduplicated per error)" },
+  { key: "alertMonitorFailure", label: "Server monitoring", desc: "Offline / high CPU, RAM, disk, or load alerts" },
 ];
 
 type Props = {
@@ -85,6 +88,7 @@ export default function SettingsPage({ onLogout }: Props) {
     alertRestoreSuccess: false,
     alertRestoreFailure: true,
     alertOffsiteFailure: true,
+    alertMonitorFailure: true,
   });
   const [smtpPassword, setSmtpPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -128,6 +132,7 @@ export default function SettingsPage({ onLogout }: Props) {
           alertRestoreSuccess: s.alertRestoreSuccess ?? false,
           alertRestoreFailure: s.alertRestoreFailure ?? true,
           alertOffsiteFailure: s.alertOffsiteFailure ?? true,
+          alertMonitorFailure: s.alertMonitorFailure ?? true,
         }),
       )
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load settings"));
@@ -176,6 +181,7 @@ export default function SettingsPage({ onLogout }: Props) {
       alertRestoreSuccess: next.alertRestoreSuccess ?? false,
       alertRestoreFailure: next.alertRestoreFailure ?? true,
       alertOffsiteFailure: next.alertOffsiteFailure ?? true,
+      alertMonitorFailure: next.alertMonitorFailure ?? true,
     }));
   };
 

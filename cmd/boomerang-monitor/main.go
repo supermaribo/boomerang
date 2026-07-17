@@ -1,0 +1,144 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/boomerang-backup/boomerang/internal/agentstats"
+	"github.com/boomerang-backup/boomerang/internal/metrics"
+	"github.com/boomerang-backup/boomerang/internal/version"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "daemon":
+		runDaemon()
+	case "collect":
+		runCollect()
+	case "ssh-export":
+		runSSHExport(os.Args[2:])
+	case "ssh-forced":
+		// Invoked via authorized_keys command=…; only honors SSH_ORIGINAL_COMMAND.
+		runSSHForced()
+	case "version", "--version", "-V":
+		fmt.Println(version.Version)
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, `boomerang-monitor %s
+
+Usage:
+  boomerang-monitor daemon              Collect metrics every minute into the spool
+  boomerang-monitor collect             Collect one sample (for testing)
+  boomerang-monitor ssh-export [--since=RFC3339]
+  boomerang-monitor ssh-forced          Restricted SSH entrypoint (forced command)
+  boomerang-monitor version
+`, version.Version)
+}
+
+func spoolDir() string {
+	if d := os.Getenv("BOOMERANG_MONITOR_SPOOL"); d != "" {
+		return d
+	}
+	return agentstats.DefaultSpoolDir
+}
+
+func runCollect() {
+	s, err := agentstats.Collect(version.Version)
+	if err != nil {
+		log.Fatal(err)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(s)
+}
+
+func runDaemon() {
+	dir := spoolDir()
+	interval := time.Minute
+	if v := os.Getenv("BOOMERANG_MONITOR_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 10*time.Second {
+			interval = d
+		}
+	}
+	log.Printf("boomerang-monitor %s collecting every %s into %s", version.Version, interval, dir)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	collectOnce(dir)
+	for range ticker.C {
+		collectOnce(dir)
+	}
+}
+
+func collectOnce(dir string) {
+	s, err := agentstats.Collect(version.Version)
+	if err != nil {
+		log.Printf("collect: %v", err)
+		return
+	}
+	if err := agentstats.AppendSample(dir, s); err != nil {
+		log.Printf("spool: %v", err)
+	}
+}
+
+func runSSHForced() {
+	cmd := os.Getenv("SSH_ORIGINAL_COMMAND")
+	since, err := agentstats.ValidateSSHCommand(cmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "boomerang-monitor: %v\n", err)
+		os.Exit(1)
+	}
+	exportSince(since)
+}
+
+func runSSHExport(args []string) {
+	since := time.Time{}
+	for _, a := range args {
+		if strings.HasPrefix(a, "--since=") {
+			raw := strings.TrimPrefix(a, "--since=")
+			if raw == "" {
+				continue
+			}
+			t, err := time.Parse(time.RFC3339Nano, raw)
+			if err != nil {
+				t, err = time.Parse(time.RFC3339, raw)
+			}
+			if err != nil {
+				log.Fatalf("invalid --since: %v", err)
+			}
+			since = t.UTC()
+		}
+	}
+	exportSince(since)
+}
+
+func exportSince(since time.Time) {
+	samples, err := agentstats.ReadSince(spoolDir(), since)
+	if err != nil {
+		log.Fatal(err)
+	}
+	batch := metrics.ExportBatch{
+		SchemaVersion: metrics.SchemaVersion,
+		ClientVersion: version.Version,
+		Samples:       samples,
+	}
+	if batch.Samples == nil {
+		batch.Samples = []metrics.Sample{}
+	}
+	enc := json.NewEncoder(os.Stdout)
+	if err := enc.Encode(batch); err != nil {
+		log.Fatal(err)
+	}
+}

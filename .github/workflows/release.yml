@@ -73,7 +73,9 @@ jobs:
           LDFLAGS="-s -w -X github.com/boomerang-backup/boomerang/internal/version.Version=${VERSION}"
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o boomerang-linux-amd64 ./cmd/boomerang
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o boomerang-linux-arm64 ./cmd/boomerang
-          sha256sum boomerang-linux-amd64 boomerang-linux-arm64 > SHA256SUMS
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o boomerang-monitor-linux-amd64 ./cmd/boomerang-monitor
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o boomerang-monitor-linux-arm64 ./cmd/boomerang-monitor
+          sha256sum boomerang-linux-amd64 boomerang-linux-arm64 boomerang-monitor-linux-amd64 boomerang-monitor-linux-arm64 > SHA256SUMS
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -81,5 +83,7 @@ jobs:
           files: |
             boomerang-linux-amd64
             boomerang-linux-arm64
+            boomerang-monitor-linux-amd64
+            boomerang-monitor-linux-arm64
             SHA256SUMS
           generate_release_notes: true
