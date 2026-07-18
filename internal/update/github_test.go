@@ -14,6 +14,21 @@ func TestIsNewer(t *testing.T) {
 	}
 }
 
+func TestClientUpdateAvailable(t *testing.T) {
+	if !ClientUpdateAvailable("0.1.17", "0.1.24") {
+		t.Fatal("expected update available")
+	}
+	if ClientUpdateAvailable("0.1.24", "0.1.24") {
+		t.Fatal("same version")
+	}
+	if ClientUpdateAvailable("", "0.1.24") {
+		t.Fatal("empty client should not be outdated")
+	}
+	if ClientUpdateAvailable("dev", "0.1.24") {
+		t.Fatal("dev client should not be outdated")
+	}
+}
+
 func TestDisplayVersion(t *testing.T) {
 	if displayVersion("v1.2.3") != "1.2.3" {
 		t.Fatal("expected strip v prefix")

@@ -11,6 +11,13 @@ import TargetHealthBadge, { healthMap, type TargetHealthRow } from "../component
 import { pollJob, cancelJob } from "../lib/jobPoll";
 import { retentionSummary } from "../components/ScheduleRetention";
 
+function fmtBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export type FileServer = {
   id: string;
   name: string;
@@ -204,11 +211,26 @@ export default function FileServers() {
                   </div>
                   <div className="muted small">
                     {describeSchedule(sched)} · {retentionSummary(f, sched)}
+                    {health?.lastCheckAt && (
+                      <span> · last check {formatApplianceDateTime(health.lastCheckAt, timezone)}</span>
+                    )}
                     {health?.lastSuccessAt && (
                       <span> · last backup {formatApplianceDateTime(health.lastSuccessAt, timezone)}</span>
                     )}
                     {health?.nextRunAt && (
                       <span> · next run {formatApplianceDateTime(health.nextRunAt, timezone)}</span>
+                    )}
+                    {typeof health?.storageBytes === "number" && (
+                      <span> · {fmtBytes(health.storageBytes)}</span>
+                    )}
+                    {health?.monitoredServerId && health.monitoredServerName && (
+                      <span>
+                        {" "}
+                        ·{" "}
+                        <Link className="text-link" to={`/app/monitoring/${health.monitoredServerId}`}>
+                          {health.monitoredServerName}
+                        </Link>
+                      </span>
                     )}
                     {f.protocol === "rsync" ? (
                       <span> · full snapshot (RSYNC)</span>

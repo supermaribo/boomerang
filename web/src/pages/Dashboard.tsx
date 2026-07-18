@@ -21,6 +21,13 @@ type Dash = {
     steadyStateBytes?: number;
     projected30Day: number;
     sampleDays: number;
+    growthByTier?: Record<string, number>;
+    dominantTier?: string;
+    dominantSharePct?: number;
+    rateBytesPerDay?: number;
+    hitBytes?: number;
+    hitAt?: string;
+    assumptions?: string;
   };
   dataDir: string;
   applianceStatus?: StatusItem[];
@@ -55,12 +62,6 @@ function fmtBytes(n: number) {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function est30Days(forecast: NonNullable<Dash["storageForecast"]>) {
-  const projected = forecast.projected30Day;
-  const cap = forecast.steadyStateBytes ?? 0;
-  return cap > projected ? cap : projected;
 }
 
 function RecentBackupList({ rows, timeZone }: { rows: RecentRow[]; timeZone: string }) {
@@ -278,13 +279,28 @@ export default function Dashboard({ onLogout }: Props) {
             <h2>Storage</h2>
             <p className="stat stat-compact">{data ? fmtBytes(data.storageBytes) : "—"}</p>
             {data?.storageForecast &&
-              (data.storageForecast.netDailyBytes ?? data.storageForecast.dailyBytes) > 0 && (
-              <p className="muted small dash-meta">
-                ~Est {fmtBytes(est30Days(data.storageForecast))} in 30 days
-              </p>
-            )}
-            <p className="muted small dash-meta">
-              Data dir: <code>{data?.dataDir ?? "—"}</code>
+              (data.storageForecast.rateBytesPerDay ??
+                data.storageForecast.netDailyBytes ??
+                data.storageForecast.dailyBytes) > 0 && (
+                <>
+                  <p
+                    className="muted small dash-meta"
+                    title={data.storageForecast.assumptions || undefined}
+                  >
+                    {data.storageForecast.hitAt && data.storageForecast.hitBytes
+                      ? `Hit ${fmtBytes(data.storageForecast.hitBytes)} by ${formatApplianceDate(data.storageForecast.hitAt, timezone)}`
+                      : `~${fmtBytes(data.storageForecast.projected30Day)} in 30 days`}
+                  </p>
+                  {data.storageForecast.dominantTier &&
+                    (data.storageForecast.dominantSharePct ?? 0) >= 40 && (
+                      <p className="muted small dash-meta">
+                        Mainly {data.storageForecast.dominantTier}
+                      </p>
+                    )}
+                </>
+              )}
+            <p className="muted small dash-meta" title={data?.dataDir}>
+              {data?.dataDir ? data.dataDir.replace(/^.*\//, "…/") : "—"}
             </p>
           </article>
         </div>

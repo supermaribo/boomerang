@@ -8,32 +8,32 @@ import (
 )
 
 type FileServer struct {
-	ID            string
-	Name          string
-	Protocol      string
-	Host          string
-	Port          int
-	Username      string
-	RemoteRoot    string
-	IncludePaths  []string
-	ExcludePaths  []string
-	AuthMode      string
-	EncSecret     []byte
-	ScheduleCron  string
-	ScheduleStart string
-	RetainCount   int
-	RetainDays    int
-	RetainHourly  int
-	RetainDaily   int
-	RetainWeekly  int
-	RetainMonthly int
-	RetainYearly      int
+	ID                 string
+	Name               string
+	Protocol           string
+	Host               string
+	Port               int
+	Username           string
+	RemoteRoot         string
+	IncludePaths       []string
+	ExcludePaths       []string
+	AuthMode           string
+	EncSecret          []byte
+	ScheduleCron       string
+	ScheduleStart      string
+	RetainCount        int
+	RetainDays         int
+	RetainHourly       int
+	RetainDaily        int
+	RetainWeekly       int
+	RetainMonthly      int
+	RetainYearly       int
 	IncrementalEnabled bool
 	SkipIfUnchanged    bool
-	SSHHostKey        string
-	Enabled           bool
-	CreatedAt     string
-	UpdatedAt     string
+	SSHHostKey         string
+	Enabled            bool
+	CreatedAt          string
+	UpdatedAt          string
 }
 
 type Database struct {
@@ -75,14 +75,16 @@ func (s *Store) ListRecentVersions(limit int, targetType string) ([]Version, err
 	var err error
 	if targetType != "" {
 		rows, err = s.DB.Query(`
-		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at
+		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at,
+		       verified_at, verify_error
 		FROM backup_versions
 		WHERE target_type = ?
 		ORDER BY created_at DESC
 		LIMIT ?`, targetType, limit)
 	} else {
 		rows, err = s.DB.Query(`
-		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at
+		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at,
+		       verified_at, verify_error
 		FROM backup_versions
 		ORDER BY created_at DESC
 		LIMIT ?`, limit)
@@ -94,8 +96,13 @@ func (s *Store) ListRecentVersions(limit int, targetType string) ([]Version, err
 	var out []Version
 	for rows.Next() {
 		var v Version
-		if err := rows.Scan(&v.ID, &v.TargetType, &v.TargetID, &v.Status, &v.Bytes, &v.PathOnDisk, &v.CreatedAt); err != nil {
+		var verified sql.NullString
+		if err := rows.Scan(&v.ID, &v.TargetType, &v.TargetID, &v.Status, &v.Bytes, &v.PathOnDisk, &v.CreatedAt,
+			&verified, &v.VerifyError); err != nil {
 			return nil, err
+		}
+		if verified.Valid {
+			v.VerifiedAt = verified.String
 		}
 		out = append(out, v)
 	}
@@ -109,6 +116,29 @@ func (s *Store) ListRecentJobs(limit int) ([]Job, error) {
 	rows, err := s.DB.Query(`
 		SELECT id, target_type, target_id, kind, status, error, started_at, finished_at, created_at
 		FROM jobs ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Job
+	for rows.Next() {
+		var j Job
+		if err := rows.Scan(&j.ID, &j.TargetType, &j.TargetID, &j.Kind, &j.Status, &j.Error, &j.StartedAt, &j.FinishedAt, &j.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// ListFailedJobsSince returns failed jobs created at or after since (UTC).
+func (s *Store) ListFailedJobsSince(since time.Time) ([]Job, error) {
+	rows, err := s.DB.Query(`
+		SELECT id, target_type, target_id, kind, status, error, started_at, finished_at, created_at
+		FROM jobs
+		WHERE status='failed' AND created_at >= ?
+		ORDER BY created_at DESC
+		LIMIT 100`, since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}

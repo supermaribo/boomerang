@@ -24,6 +24,8 @@ type Settings = {
   alertRestoreFailure: boolean;
   alertOffsiteFailure: boolean;
   alertMonitorFailure: boolean;
+  alertDailyDigest: boolean;
+  digestHour: number;
   timezone?: string;
 };
 
@@ -46,6 +48,7 @@ const ALERTS: {
     | "alertRestoreSuccess"
     | "alertOffsiteFailure"
     | "alertMonitorFailure"
+    | "alertDailyDigest"
   >;
   label: string;
   desc: string;
@@ -56,6 +59,7 @@ const ALERTS: {
   { key: "alertRestoreSuccess", label: "Restore succeeded", desc: "After a restore completes" },
   { key: "alertOffsiteFailure", label: "Off-site mirror failed", desc: "When R2 sync fails (deduplicated per error)" },
   { key: "alertMonitorFailure", label: "Server monitoring", desc: "Offline / high CPU, RAM, disk, or load alerts" },
+  { key: "alertDailyDigest", label: "Daily health digest", desc: "One morning email with overdue backups, failures, off-site, and offline monitors" },
 ];
 
 type Props = {
@@ -89,6 +93,8 @@ export default function SettingsPage({ onLogout }: Props) {
     alertRestoreFailure: true,
     alertOffsiteFailure: true,
     alertMonitorFailure: true,
+    alertDailyDigest: true,
+    digestHour: 8,
   });
   const [smtpPassword, setSmtpPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -133,6 +139,8 @@ export default function SettingsPage({ onLogout }: Props) {
           alertRestoreFailure: s.alertRestoreFailure ?? true,
           alertOffsiteFailure: s.alertOffsiteFailure ?? true,
           alertMonitorFailure: s.alertMonitorFailure ?? true,
+          alertDailyDigest: s.alertDailyDigest ?? true,
+          digestHour: s.digestHour ?? 8,
         }),
       )
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load settings"));
@@ -182,6 +190,8 @@ export default function SettingsPage({ onLogout }: Props) {
       alertRestoreFailure: next.alertRestoreFailure ?? true,
       alertOffsiteFailure: next.alertOffsiteFailure ?? true,
       alertMonitorFailure: next.alertMonitorFailure ?? true,
+      alertDailyDigest: next.alertDailyDigest ?? true,
+      digestHour: next.digestHour ?? 8,
     }));
   };
 
@@ -406,6 +416,16 @@ export default function SettingsPage({ onLogout }: Props) {
                       </label>
                     ))}
                   </div>
+                  <label>
+                    Digest hour (appliance timezone, 0–23)
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={form.digestHour}
+                      onChange={(e) => set("digestHour", Number(e.target.value) || 0)}
+                    />
+                  </label>
                 </fieldset>
 
                 <fieldset className="settings-fieldset">

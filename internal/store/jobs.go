@@ -22,13 +22,15 @@ type Job struct {
 }
 
 type Version struct {
-	ID         string `json:"id"`
-	TargetType string `json:"targetType"`
-	TargetID   string `json:"targetId"`
-	Status     string `json:"status"`
-	Bytes      int64  `json:"bytes"`
-	PathOnDisk string `json:"pathOnDisk"`
-	CreatedAt  string `json:"createdAt"`
+	ID          string `json:"id"`
+	TargetType  string `json:"targetType"`
+	TargetID    string `json:"targetId"`
+	Status      string `json:"status"`
+	Bytes       int64  `json:"bytes"`
+	PathOnDisk  string `json:"pathOnDisk"`
+	CreatedAt   string `json:"createdAt"`
+	VerifiedAt  string `json:"verifiedAt,omitempty"`
+	VerifyError string `json:"verifyError,omitempty"`
 }
 
 func (s *Store) CreateJob(id, targetType, targetID, kind string) error {
@@ -134,19 +136,30 @@ func (s *Store) UpdateVersion(id, status string, bytes int64) error {
 
 func (s *Store) GetVersion(id string) (*Version, error) {
 	var v Version
-	err := s.DB.QueryRow(`SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at FROM backup_versions WHERE id=?`, id).
-		Scan(&v.ID, &v.TargetType, &v.TargetID, &v.Status, &v.Bytes, &v.PathOnDisk, &v.CreatedAt)
+	var verified sql.NullString
+	err := s.DB.QueryRow(`
+		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at,
+		       verified_at, verify_error
+		FROM backup_versions WHERE id=?`, id).
+		Scan(&v.ID, &v.TargetType, &v.TargetID, &v.Status, &v.Bytes, &v.PathOnDisk, &v.CreatedAt,
+			&verified, &v.VerifyError)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	if verified.Valid {
+		v.VerifiedAt = verified.String
+	}
 	return &v, nil
 }
 
 func (s *Store) ListVersions(targetType, targetID string) ([]Version, error) {
-	rows, err := s.DB.Query(`SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at FROM backup_versions WHERE target_type=? AND target_id=? ORDER BY created_at DESC`,
+	rows, err := s.DB.Query(`
+		SELECT id, target_type, target_id, status, bytes, path_on_disk, created_at,
+		       verified_at, verify_error
+		FROM backup_versions WHERE target_type=? AND target_id=? ORDER BY created_at DESC`,
 		targetType, targetID)
 	if err != nil {
 		return nil, err
@@ -155,12 +168,28 @@ func (s *Store) ListVersions(targetType, targetID string) ([]Version, error) {
 	var out []Version
 	for rows.Next() {
 		var v Version
-		if err := rows.Scan(&v.ID, &v.TargetType, &v.TargetID, &v.Status, &v.Bytes, &v.PathOnDisk, &v.CreatedAt); err != nil {
+		var verified sql.NullString
+		if err := rows.Scan(&v.ID, &v.TargetType, &v.TargetID, &v.Status, &v.Bytes, &v.PathOnDisk, &v.CreatedAt,
+			&verified, &v.VerifyError); err != nil {
 			return nil, err
+		}
+		if verified.Valid {
+			v.VerifiedAt = verified.String
 		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// MarkVersionVerified records a local-only verify result for a backup version.
+func (s *Store) MarkVersionVerified(id string, ok bool, errMsg string) error {
+	if ok {
+		_, err := s.DB.Exec(`UPDATE backup_versions SET verified_at=?, verify_error='' WHERE id=?`,
+			time.Now().UTC().Format(time.RFC3339), id)
+		return err
+	}
+	_, err := s.DB.Exec(`UPDATE backup_versions SET verified_at=NULL, verify_error=? WHERE id=?`, errMsg, id)
+	return err
 }
 
 func (s *Store) CountVersions(targetType, targetID string) (int, error) {
@@ -434,6 +463,60 @@ func gfsKeep(versions []Version, r Retention) map[string]bool {
 	keepBuckets(r.Monthly, retentionMonthKey)
 	keepBuckets(r.Yearly, retentionYearKey)
 	return keep
+}
+
+// primaryRetentionTiers assigns each kept version its coarsest retention tier
+// (yearly > monthly > weekly > daily > hourly). Unkept versions are omitted.
+func primaryRetentionTiers(versions []Version, r Retention) map[string]string {
+	type item struct {
+		v Version
+		t time.Time
+	}
+	var items []item
+	for _, v := range versions {
+		if v.Status != "succeeded" {
+			continue
+		}
+		t, ok := parseVersionTime(v.CreatedAt)
+		if !ok {
+			continue
+		}
+		items = append(items, item{v: v, t: t.UTC()})
+	}
+	for i := 0; i < len(items); i++ {
+		for j := i + 1; j < len(items); j++ {
+			if items[j].t.After(items[i].t) {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+	}
+	out := map[string]string{}
+	assign := func(n int, tier string, keyFn func(time.Time) string) {
+		if n <= 0 {
+			return
+		}
+		seen := map[string]bool{}
+		for _, it := range items {
+			if out[it.v.ID] != "" {
+				continue
+			}
+			k := keyFn(it.t)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out[it.v.ID] = tier
+			if len(seen) >= n {
+				return
+			}
+		}
+	}
+	assign(r.Yearly, "yearly", retentionYearKey)
+	assign(r.Monthly, "monthly", retentionMonthKey)
+	assign(r.Weekly, "weekly", retentionWeekKey)
+	assign(r.Daily, "daily", retentionDayKey)
+	assign(r.Hourly, "hourly", retentionHourKey)
+	return out
 }
 
 func retentionHourKey(t time.Time) string  { return t.UTC().Format("2006-01-02-15") }

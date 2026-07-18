@@ -17,12 +17,13 @@ const (
 
 // AlertPrefs controls which job outcomes trigger email.
 type AlertPrefs struct {
-	BackupSuccess   bool
-	BackupFailure   bool
-	RestoreSuccess  bool
-	RestoreFailure  bool
-	OffsiteFailure  bool
-	MonitorFailure  bool
+	BackupSuccess  bool
+	BackupFailure  bool
+	RestoreSuccess bool
+	RestoreFailure bool
+	OffsiteFailure bool
+	MonitorFailure bool
+	DailyDigest    bool
 }
 
 type MailConfig struct {

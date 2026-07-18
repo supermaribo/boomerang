@@ -120,6 +120,8 @@ type settingsDTO struct {
 	AlertRestoreFailure bool   `json:"alertRestoreFailure"`
 	AlertOffsiteFailure bool   `json:"alertOffsiteFailure"`
 	AlertMonitorFailure bool   `json:"alertMonitorFailure"`
+	AlertDailyDigest    bool   `json:"alertDailyDigest"`
+	DigestHour          int    `json:"digestHour"`
 	Timezone            string `json:"timezone"`
 }
 
@@ -192,6 +194,7 @@ func (s *Server) loadMail() (notify.MailConfig, error) {
 			RestoreFailure: boolMeta("alert_restore_failure", true),
 			OffsiteFailure: boolMeta("alert_offsite_failure", true),
 			MonitorFailure: boolMeta("alert_monitor_failure", true),
+			DailyDigest:    boolMeta("alert_daily_digest", true),
 		},
 	}, nil
 }
@@ -256,6 +259,8 @@ func settingsToDTO(cfg notify.MailConfig) settingsDTO {
 		AlertRestoreFailure: cfg.Alerts.RestoreFailure,
 		AlertOffsiteFailure: cfg.Alerts.OffsiteFailure,
 		AlertMonitorFailure: cfg.Alerts.MonitorFailure,
+		AlertDailyDigest:    cfg.Alerts.DailyDigest,
+		DigestHour:          8,
 	}
 }
 
@@ -267,6 +272,11 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 	}
 	dto := settingsToDTO(cfg)
 	dto.Timezone = tzutil.Name(s.store)
+	if v, ok, _ := s.store.GetMeta("digest_hour"); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 23 {
+			dto.DigestHour = n
+		}
+	}
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -292,6 +302,12 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.SetMeta("alert_restore_failure", boolStr(req.AlertRestoreFailure))
 	_ = s.store.SetMeta("alert_offsite_failure", boolStr(req.AlertOffsiteFailure))
 	_ = s.store.SetMeta("alert_monitor_failure", boolStr(req.AlertMonitorFailure))
+	_ = s.store.SetMeta("alert_daily_digest", boolStr(req.AlertDailyDigest))
+	hour := req.DigestHour
+	if hour < 0 || hour > 23 {
+		hour = 8
+	}
+	_ = s.store.SetMeta("digest_hour", strconv.Itoa(hour))
 	_ = s.store.SetMeta("smtp_host", req.SMTPHost)
 	_ = s.store.SetMeta("smtp_port", strconv.Itoa(req.SMTPPort))
 	_ = s.store.SetMeta("smtp_user", req.SMTPUser)

@@ -198,6 +198,33 @@ func VersionChain(st *store.Store, versionID, versionDir string) ([]string, erro
 	return chain, nil
 }
 
+// VerifyVersionChain verifies each segment in the incremental chain (local-only).
+func VerifyVersionChain(st *store.Store, versionID, versionDir string, box *crypto.Box) error {
+	seen := map[string]bool{}
+	curID := versionID
+	dir := versionDir
+	for curID != "" && !seen[curID] {
+		seen[curID] = true
+		if err := backup.VerifyFileBackup(dir, box); err != nil {
+			return fmt.Errorf("version %s: %w", curID, err)
+		}
+		m, err := backup.ReadFileManifest(dir)
+		if err != nil {
+			return fmt.Errorf("version %s manifest: %w", curID, err)
+		}
+		if m.BaseVersionID == "" {
+			return nil
+		}
+		v, err := st.GetVersion(m.BaseVersionID)
+		if err != nil || v == nil {
+			return fmt.Errorf("incomplete incremental chain: missing base %s", m.BaseVersionID)
+		}
+		curID = v.ID
+		dir = v.PathOnDisk
+	}
+	return nil
+}
+
 func ArchivePath(versionDir string) string {
 	return filepath.Join(versionDir, archive.FilesArchive)
 }

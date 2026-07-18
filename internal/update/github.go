@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -139,6 +140,22 @@ func isNewer(current, latest string) bool {
 	return semver.Compare(cur, lat) < 0
 }
 
+// ClientUpdateAvailable reports whether a known agent version is behind latest.
+// Empty or "dev" agent versions return false (unknown, not outdated).
+func ClientUpdateAvailable(clientVersion, latest string) bool {
+	cur := semverTag(clientVersion)
+	lat := semverTag(latest)
+	if cur == "" || lat == "" {
+		return false
+	}
+	return semver.Compare(cur, lat) < 0
+}
+
+// IsNewer reports whether latest is a newer semver than current (appliance check).
+func IsNewer(current, latest string) bool {
+	return isNewer(current, latest)
+}
+
 func semverTag(v string) string {
 	v = normalizeTag(v)
 	if v == "" || v == "dev" {
@@ -163,4 +180,32 @@ func displayVersion(v string) string {
 		return "dev"
 	}
 	return strings.TrimPrefix(v, "v")
+}
+
+var (
+	releaseCacheMu  sync.Mutex
+	releaseCacheAt  time.Time
+	releaseCacheTag string
+	releaseCacheErr error
+	releaseCacheTTL = time.Hour
+)
+
+// LatestTagCached returns the latest GitHub release tag (without leading v),
+// caching successful and failed lookups for about an hour.
+func LatestTagCached() (string, error) {
+	releaseCacheMu.Lock()
+	defer releaseCacheMu.Unlock()
+	if time.Since(releaseCacheAt) < releaseCacheTTL && (releaseCacheTag != "" || releaseCacheErr != nil) {
+		return releaseCacheTag, releaseCacheErr
+	}
+	rel, err := fetchLatestRelease()
+	releaseCacheAt = time.Now()
+	if err != nil {
+		releaseCacheTag = ""
+		releaseCacheErr = err
+		return "", err
+	}
+	releaseCacheTag = displayVersion(rel.TagName)
+	releaseCacheErr = nil
+	return releaseCacheTag, nil
 }

@@ -7,6 +7,8 @@ import { formatApplianceDateTime } from "../lib/formatTime";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
+import TargetStatusStrip from "../components/TargetStatusStrip";
+import { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
 
 type Version = {
   id: string;
@@ -14,6 +16,8 @@ type Version = {
   bytes: number;
   createdAt: string;
   pathOnDisk: string;
+  verifiedAt?: string;
+  verifyError?: string;
 };
 
 type Entry = {
@@ -57,6 +61,7 @@ export default function ExploreBackups() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [panel, setPanel] = useState<"browse" | "log">("browse");
   const [busy, setBusy] = useState(false);
+  const [health, setHealth] = useState<TargetHealthRow | null>(null);
   const [preview, setPreview] = useState<{
     files: { path: string; size: number }[];
     totalFiles: number;
@@ -83,6 +88,12 @@ export default function ExploreBackups() {
     const vs = asArray(await api<Version[] | null>(`/api/file-servers/${id}/versions`));
     setServer(fs);
     setVersions(vs);
+    try {
+      const th = await api<{ targets: TargetHealthRow[] }>("/api/target-health");
+      setHealth(healthMap(asArray(th.targets))[`file:${id}`] ?? null);
+    } catch {
+      setHealth(null);
+    }
     const ok = vs.filter((v) => v.status === "succeeded");
     const want = selectId !== undefined ? selectId : vid;
     if (want && vs.some((v) => v.id === want)) {
@@ -304,7 +315,21 @@ export default function ExploreBackups() {
       const res = await api<{ jobId: string }>(`/api/file-servers/${id}/versions/${vid}/verify`, {
         method: "POST",
       });
-      setInfo(`Verify job ${res.jobId} started`);
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const job = await api<{ status: string; error: string }>(`/api/jobs/${res.jobId}`);
+        const logs = await api<{ lines: string[] }>(`/api/jobs/${res.jobId}/logs`);
+        if (logs.lines?.length) setInfo(logs.lines.slice(-2).join(" · "));
+        if (job.status === "succeeded" || job.status === "failed") {
+          setInfo(
+            job.status === "succeeded"
+              ? "Backup verified OK (local-only)."
+              : `Verify failed: ${job.error || ""}`,
+          );
+          break;
+        }
+      }
+      await loadVersions(vid);
     } catch (e) {
       setError(e instanceof Error ? e.message : "verify failed");
     } finally {
@@ -351,6 +376,8 @@ export default function ExploreBackups() {
         </Link>
       </header>
 
+      <TargetStatusStrip row={health} timezone={timezone} />
+
       <div className="err">{error}</div>
       {info && <p className="ok pad">{info}</p>}
 
@@ -380,6 +407,17 @@ export default function ExploreBackups() {
                   <span className="muted small backup-version-size">
                     {fmtBytes(selectedVersion.bytes)}
                   </span>
+                  {selectedVersion.verifyError ? (
+                    <span className="pill warning" title={selectedVersion.verifyError}>
+                      verify failed
+                    </span>
+                  ) : selectedVersion.verifiedAt ? (
+                    <span className="pill ok" title={formatApplianceDateTime(selectedVersion.verifiedAt, timezone)}>
+                      verified {formatApplianceDateTime(selectedVersion.verifiedAt, timezone)}
+                    </span>
+                  ) : selectedVersion.status === "succeeded" ? (
+                    <span className="muted small">not verified yet</span>
+                  ) : null}
                 </div>
               )}
               <div className="backup-version-actions">
@@ -402,10 +440,11 @@ export default function ExploreBackups() {
                 <button
                   type="button"
                   className="ghost"
-                  disabled={!vid || busy}
+                  disabled={!vid || busy || selectedVersion?.status !== "succeeded"}
                   onClick={() => void verify()}
+                  title="Local-only integrity check; does not contact the website host"
                 >
-                  Verify
+                  Verify only
                 </button>
                 <button
                   type="button"

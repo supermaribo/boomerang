@@ -160,3 +160,12 @@ func (s *Store) SumBackupBytes() (int64, error) {
 	err := s.DB.QueryRow(`SELECT COALESCE(SUM(bytes), 0) FROM backup_versions WHERE status='succeeded'`).Scan(&n)
 	return n, err
 }
+
+func (s *Store) SumTargetBackupBytes(targetType, targetID string) (int64, error) {
+	var n int64
+	err := s.DB.QueryRow(`
+		SELECT COALESCE(SUM(bytes), 0) FROM backup_versions
+		WHERE status='succeeded' AND target_type=? AND target_id=?`,
+		targetType, targetID).Scan(&n)
+	return n, err
+}

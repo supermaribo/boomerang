@@ -31,6 +31,8 @@ export type MonitoredServer = {
   lastSampleAt?: string;
   lastPollError?: string;
   clientVersion?: string;
+  latestClientVersion?: string;
+  clientUpdateAvailable?: boolean;
   activeAlerts?: string[];
   installCommand?: string;
   pollIntervalSec?: number;
@@ -55,6 +57,7 @@ function fmtUptime(sec?: number) {
 
 function pct(n?: number) {
   if (n == null || Number.isNaN(n)) return "—";
+  if (Math.abs(n) < 10) return `${n.toFixed(1)}%`;
   return `${n.toFixed(0)}%`;
 }
 
@@ -181,9 +184,18 @@ export default function Monitoring() {
                     <span className={`pill ${s.online ? "succeeded" : "failed"}`}>
                       {s.online ? "online" : "offline"}
                     </span>
+                    {s.clientUpdateAvailable && (
+                      <span className="pill warning" title={`Update to ${s.latestClientVersion}`}>
+                        update available
+                      </span>
+                    )}
                   </div>
                   <p className="muted small">
                     {s.host}:{s.port} · {s.statusDetail || ""}
+                    {s.clientVersion ? ` · client ${s.clientVersion}` : ""}
+                    {s.clientUpdateAvailable && s.latestClientVersion
+                      ? ` → ${s.latestClientVersion}`
+                      : ""}
                     {s.lastSampleAt
                       ? ` · last ${formatApplianceDateTime(s.lastSampleAt, timezone)}`
                       : ""}
@@ -194,10 +206,12 @@ export default function Monitoring() {
                     {s.primaryDiskMount
                       ? ` · ${s.primaryDiskMount} ${pct(s.primaryDiskPercent)}`
                       : ""}
-                    {s.netIface
-                      ? ` · ${s.netIface} ↓${fmtRate(s.netRxBps)} ↑${fmtRate(s.netTxBps)}`
-                      : ""}
                   </p>
+                  {s.netIface && (
+                    <p className="muted small monitor-rates">
+                      {s.netIface}: ↓ {fmtRate(s.netRxBps)} · ↑ {fmtRate(s.netTxBps)}
+                    </p>
+                  )}
                   {(s.activeAlerts?.length ?? 0) > 0 && (
                     <p className="err small">Alerts: {s.activeAlerts!.join(", ")}</p>
                   )}

@@ -395,7 +395,16 @@ export default function MonitorDetail() {
                 <span className={`pill ${server.online ? "succeeded" : "failed"}`}>
                   {server.online ? "online" : "offline"}
                 </span>
+                {server.clientUpdateAvailable && (
+                  <>
+                    {" "}
+                    <span className="pill warning">update available</span>
+                  </>
+                )}
                 {server.clientVersion ? ` · client ${server.clientVersion}` : ""}
+                {server.clientUpdateAvailable && server.latestClientVersion
+                  ? ` → ${server.latestClientVersion}`
+                  : ""}
               </>
             ) : (
               "…"
@@ -412,6 +421,33 @@ export default function MonitorDetail() {
 
       {server && (
         <>
+          {(server.clientUpdateAvailable ||
+            (server.lastSampleAt && !server.netIface) ||
+            logSourceError) && (
+            <section className="tile">
+              <h2>Agent attention</h2>
+              {server.clientUpdateAvailable && (
+                <p className="err">
+                  Monitor client {server.clientVersion || "unknown"} is behind{" "}
+                  {server.latestClientVersion}. Re-run the install command below to update (manual
+                  only — Boomerang does not push updates).
+                </p>
+              )}
+              {server.lastSampleAt && !server.netIface && !server.clientUpdateAvailable && (
+                <p className="err">
+                  This agent is not reporting network throughput. Re-run the install command to get
+                  network metrics.
+                </p>
+              )}
+              {logSourceError && (
+                <p className="err">
+                  Log discovery failed. Re-run the install command so the agent can list Apache/Nginx
+                  and journal sources.
+                </p>
+              )}
+            </section>
+          )}
+
           <section className="tile">
             <h2>Install client</h2>
             <p className="muted small">

@@ -115,6 +115,21 @@ func (s *Store) ListMonitoredServers() ([]MonitoredServer, error) {
 	return out, rows.Err()
 }
 
+// MonitoredByFileServerID returns file_server_id → monitored server for linked monitors.
+func (s *Store) MonitoredByFileServerID() (map[string]MonitoredServer, error) {
+	servers, err := s.ListMonitoredServers()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]MonitoredServer)
+	for _, m := range servers {
+		if m.FileServerID.Valid && m.FileServerID.String != "" {
+			out[m.FileServerID.String] = m
+		}
+	}
+	return out, nil
+}
+
 func (s *Store) GetMonitoredServer(id string) (*MonitoredServer, error) {
 	row := s.DB.QueryRow(`
 		SELECT id, name, host, port, username, enc_secret, ssh_host_key, file_server_id, enabled,

@@ -9,7 +9,8 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 )
 
-// VerifyFileBackup checks manifest entries against the encrypted archive.
+// VerifyFileBackup checks manifest entries against the encrypted archive (local-only).
+// It decrypts and streams the tar body to discard; it never contacts a remote host.
 func VerifyFileBackup(versionDir string, box *crypto.Box) error {
 	m, err := ReadFileManifest(versionDir)
 	if err != nil {
@@ -38,8 +39,12 @@ func VerifyFileBackup(versionDir string, box *crypto.Box) error {
 		if err != nil {
 			return fmt.Errorf("read tar: %w", err)
 		}
-		if hdr.Typeflag == tar.TypeReg {
-			got++
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		got++
+		if _, err := io.Copy(io.Discard, tr); err != nil {
+			return fmt.Errorf("read %s: %w", hdr.Name, err)
 		}
 	}
 	if got < wantFiles {

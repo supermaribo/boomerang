@@ -172,7 +172,7 @@ body {
 
 .dash-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .dash-overview .dash-tile {
@@ -817,9 +817,19 @@ ol.compact li {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 
+.pill.ok {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
 .pill.skipped {
   color: var(--muted);
   border-color: var(--line);
+}
+
+.pill.warning {
+  color: #e0b36a;
+  border-color: color-mix(in srgb, #e0b36a 40%, var(--line));
 }
 
 .pill.failed {
@@ -1687,6 +1697,27 @@ ol.plain.numbered li {
   min-width: 0;
 }
 
+.target-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+
+.target-status-strip .health-pill {
+  margin: 0;
+}
+
+.target-status-strip .pill {
+  margin-left: 0;
+  text-decoration: none;
+}
+
 .backup-version-bar {
   display: flex;
   flex-wrap: wrap;
@@ -2063,41 +2094,40 @@ button.crumb {
   }
 
   .dash-overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .dash-overview .dash-tile {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    padding: 0.85rem 0.55rem;
   }
 
-  .dash-overview .dash-tile:nth-child(2n) {
-    border-right: 0;
+  .dash-overview .stat {
+    font-size: 1.45rem;
   }
 
-  .dash-overview .dash-tile:nth-child(odd) {
-    border-right: 1px solid var(--line);
-  }
-
-  .dash-overview .dash-tile:nth-last-child(-n + 2) {
-    border-bottom: 0;
+  .dash-overview .dash-tile h2 {
+    font-size: 0.7rem;
   }
 }
 
 @media (max-width: 720px) {
-  .grid,
-  .dash-overview {
+  .grid {
     grid-template-columns: 1fr;
   }
 
-  .dash-overview .dash-tile,
-  .dash-overview .dash-tile:nth-child(odd) {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+  .dash-overview {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow-x: auto;
+  }
+
+  .dash-overview .dash-tile {
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    min-width: 5.5rem;
   }
 
   .dash-overview .dash-tile:last-child {
-    border-bottom: 0;
+    border-right: 0;
   }
 }
 
@@ -2138,6 +2168,10 @@ button.crumb {
 
 .monitor-metrics {
   margin-top: 0.25rem;
+}
+
+.monitor-rates {
+  margin-top: 0.15rem;
 }
 
 .monitor-chart-wrap {

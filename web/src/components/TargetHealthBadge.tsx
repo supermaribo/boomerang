@@ -27,8 +27,14 @@ export type TargetHealthRow = {
   health: string;
   healthDetail?: string;
   lastSuccessAt?: string;
+  lastSuccessBytes?: number;
+  lastCheckAt?: string;
+  lastWasSkip?: boolean;
   versionCount?: number;
   nextRunAt?: string;
+  storageBytes?: number;
+  monitoredServerId?: string;
+  monitoredServerName?: string;
 };
 
 export function healthMap(rows: TargetHealthRow[]) {

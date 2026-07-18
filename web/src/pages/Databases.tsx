@@ -11,6 +11,13 @@ import { retentionSummary } from "../components/ScheduleRetention";
 import { describeSchedule, parseSchedule } from "../lib/schedule";
 import { formatApplianceDateTime } from "../lib/formatTime";
 
+function fmtBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export type Database = {
   id: string;
   name: string;
@@ -186,11 +193,17 @@ export default function Databases() {
                   </span>
                   <div className="muted small">
                     {describeSchedule(sched)} · {retentionSummary(d, sched)}
+                    {health?.lastCheckAt && (
+                      <span> · last check {formatApplianceDateTime(health.lastCheckAt, timezone)}</span>
+                    )}
                     {health?.lastSuccessAt && (
                       <span> · last backup {formatApplianceDateTime(health.lastSuccessAt, timezone)}</span>
                     )}
                     {health?.nextRunAt && (
                       <span> · next run {formatApplianceDateTime(health.nextRunAt, timezone)}</span>
+                    )}
+                    {typeof health?.storageBytes === "number" && (
+                      <span> · {fmtBytes(health.storageBytes)}</span>
                     )}
                     {d.includeTables?.length
                       ? ` · ${d.includeTables.length} table(s)`

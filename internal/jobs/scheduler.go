@@ -3,6 +3,7 @@ package jobs
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -116,6 +117,16 @@ func (s *Scheduler) Reload() {
 	}
 	if _, err := s.cron.AddFunc("0 3 * * 0", func() { s.runWeeklyVerifyNow() }); err != nil {
 		log.Printf("weekly verify cron: %v", err)
+	}
+	digestHour := 8
+	if v, ok, _ := s.store.GetMeta("digest_hour"); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 23 {
+			digestHour = n
+		}
+	}
+	digestExpr := fmt.Sprintf("0 %d * * *", digestHour)
+	if _, err := s.cron.AddFunc(digestExpr, func() { s.runDailyDigest() }); err != nil {
+		log.Printf("daily digest cron: %v", err)
 	}
 }
 

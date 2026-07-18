@@ -8,6 +8,8 @@ import { pollJob, downloadDBBackup } from "../lib/jobPoll";
 import Nav from "../components/Nav";
 import SiteFooter from "../components/SiteFooter";
 import VersionLogPanel from "../components/VersionLogPanel";
+import TargetStatusStrip from "../components/TargetStatusStrip";
+import { healthMap, type TargetHealthRow } from "../components/TargetHealthBadge";
 import type { Database } from "./Databases";
 
 type Version = {
@@ -15,6 +17,8 @@ type Version = {
   status: string;
   bytes: number;
   createdAt: string;
+  verifiedAt?: string;
+  verifyError?: string;
 };
 
 type RestorePreview = {
@@ -56,16 +60,19 @@ export default function DatabaseBackups() {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [logVersion, setLogVersion] = useState<string | null>(null);
+  const [health, setHealth] = useState<TargetHealthRow | null>(null);
   const [restore, setRestore] = useState<RestoreState | null>(null);
   const [deleteVersion, setDeleteVersion] = useState<DeleteVersionState | null>(null);
 
   const load = async () => {
-    const [d, vs] = await Promise.all([
+    const [d, vs, th] = await Promise.all([
       api<Database>(`/api/databases/${id}`),
       api<Version[] | null>(`/api/databases/${id}/versions`),
+      api<{ targets: TargetHealthRow[] }>("/api/target-health"),
     ]);
     setDb(d);
     setVersions(asArray(vs));
+    setHealth(healthMap(asArray(th.targets))[`db:${id}`] ?? null);
   };
 
   useEffect(() => {
@@ -171,9 +178,10 @@ export default function DatabaseBackups() {
       const result = await pollJob(res.jobId, (lines) => setInfo(lines.join(" · ")));
       setInfo(
         result.status === "succeeded"
-          ? "Backup verified OK."
+          ? "Backup verified OK (local-only)."
           : `Verify failed: ${result.error || ""}`,
       );
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "verify failed");
     } finally {
@@ -236,6 +244,8 @@ export default function DatabaseBackups() {
           <Link to="/app/databases">Back to databases</Link>
         </p>
       </header>
+
+      <TargetStatusStrip row={health} timezone={timezone} />
 
       {error && <p className="err pad">{error}</p>}
       {info && <p className="ok pad">{info}</p>}
@@ -358,6 +368,19 @@ export default function DatabaseBackups() {
                   <span className="muted small">
                     {" "}
                     · <span className={`pill ${v.status}`}>{v.status}</span> · {fmtBytes(v.bytes)}
+                    {v.verifyError ? (
+                      <>
+                        {" "}
+                        · <span className="pill warning" title={v.verifyError}>verify failed</span>
+                      </>
+                    ) : v.verifiedAt ? (
+                      <>
+                        {" "}
+                        · <span className="pill ok">verified {formatApplianceDateTime(v.verifiedAt, timezone)}</span>
+                      </>
+                    ) : v.status === "succeeded" ? (
+                      <> · not verified yet</>
+                    ) : null}
                   </span>
                 </div>
                 <div className="list-actions">
@@ -376,8 +399,9 @@ export default function DatabaseBackups() {
                         className="ghost"
                         disabled={busy}
                         onClick={() => void runVerify(v.id)}
+                        title="Local-only integrity check; does not contact the database host"
                       >
-                        Verify
+                        Verify only
                       </button>
                       <button
                         type="button"

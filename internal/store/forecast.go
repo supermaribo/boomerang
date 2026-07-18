@@ -1,14 +1,25 @@
 package store
 
-import "time"
+import (
+	"fmt"
+	"math"
+	"time"
+)
 
 type StorageForecast struct {
-	CurrentBytes      int64 `json:"currentBytes"`
-	DailyBytes        int64 `json:"dailyBytes"`
-	NetDailyBytes     int64 `json:"netDailyBytes"`
-	SteadyStateBytes  int64 `json:"steadyStateBytes"`
-	Projected30Day    int64 `json:"projected30Day"`
-	SampleDays        int   `json:"sampleDays"`
+	CurrentBytes     int64            `json:"currentBytes"`
+	DailyBytes       int64            `json:"dailyBytes"`
+	NetDailyBytes    int64            `json:"netDailyBytes"`
+	SteadyStateBytes int64            `json:"steadyStateBytes"`
+	Projected30Day   int64            `json:"projected30Day"`
+	SampleDays       int              `json:"sampleDays"`
+	GrowthByTier     map[string]int64 `json:"growthByTier,omitempty"`
+	DominantTier    string           `json:"dominantTier,omitempty"`
+	DominantSharePct int              `json:"dominantSharePct,omitempty"`
+	RateBytesPerDay  int64            `json:"rateBytesPerDay"`
+	HitBytes         int64            `json:"hitBytes,omitempty"`
+	HitAt            string           `json:"hitAt,omitempty"`
+	Assumptions      string           `json:"assumptions"`
 }
 
 func (s *Store) StorageForecast(sampleDays int) (StorageForecast, error) {
@@ -17,13 +28,19 @@ func (s *Store) StorageForecast(sampleDays int) (StorageForecast, error) {
 		sampleDays = 7
 		out.SampleDays = sampleDays
 	}
+	out.Assumptions = fmt.Sprintf(
+		"Based on the last %d days of net storage change; capped by configured retention; ignores prune timing and size changes within existing slots.",
+		sampleDays,
+	)
+
 	cur, err := s.SumBackupBytes()
 	if err != nil {
 		return out, err
 	}
 	out.CurrentBytes = cur
 
-	cut := time.Now().UTC().AddDate(0, 0, -sampleDays).Format(time.RFC3339)
+	cutTime := time.Now().UTC().AddDate(0, 0, -sampleDays)
+	cut := cutTime.Format(time.RFC3339)
 	var added int64
 	err = s.DB.QueryRow(`
 		SELECT COALESCE(SUM(bytes), 0) FROM backup_versions
@@ -50,15 +67,112 @@ func (s *Store) StorageForecast(sampleDays int) (StorageForecast, error) {
 	out.NetDailyBytes = net / int64(sampleDays)
 
 	out.SteadyStateBytes = s.estimateSteadyStateBytes()
-	projected := cur + out.NetDailyBytes*30
-	if out.NetDailyBytes == 0 && out.DailyBytes > 0 {
-		projected = cur + out.DailyBytes*30
+	rate := out.NetDailyBytes
+	if rate == 0 && out.DailyBytes > 0 {
+		rate = out.DailyBytes
 	}
+	out.RateBytesPerDay = rate
+
+	projected := cur + rate*30
 	if out.SteadyStateBytes > 0 && projected > out.SteadyStateBytes {
 		projected = out.SteadyStateBytes
 	}
 	out.Projected30Day = projected
+
+	out.GrowthByTier = s.growthByRetentionTier(cutTime)
+	out.DominantTier, out.DominantSharePct = dominantTier(out.GrowthByTier)
+
+	out.HitBytes = projected
+	if rate > 0 && out.HitBytes > cur {
+		days := int(math.Ceil(float64(out.HitBytes-cur) / float64(rate)))
+		if days < 1 {
+			days = 1
+		}
+		out.HitAt = time.Now().UTC().AddDate(0, 0, days).Format(time.RFC3339)
+	}
+
 	return out, nil
+}
+
+func dominantTier(by map[string]int64) (string, int) {
+	if len(by) == 0 {
+		return "", 0
+	}
+	var best string
+	var bestN, total int64
+	for tier, n := range by {
+		if n <= 0 {
+			continue
+		}
+		total += n
+		if n > bestN {
+			bestN = n
+			best = tier
+		}
+	}
+	if best == "" || total <= 0 {
+		return "", 0
+	}
+	return best, int((bestN * 100) / total)
+}
+
+func (s *Store) growthByRetentionTier(since time.Time) map[string]int64 {
+	out := map[string]int64{}
+	files, _ := s.ListFileServers()
+	for _, f := range files {
+		versions, err := s.ListVersions("file", f.ID)
+		if err != nil {
+			continue
+		}
+		r := Retention{
+			Hourly: f.RetainHourly, Daily: f.RetainDaily, Weekly: f.RetainWeekly,
+			Monthly: f.RetainMonthly, Yearly: f.RetainYearly, Count: f.RetainCount,
+		}
+		addTierGrowth(out, versions, r, since)
+	}
+	dbs, _ := s.ListDatabases()
+	for _, d := range dbs {
+		versions, err := s.ListVersions("db", d.ID)
+		if err != nil {
+			continue
+		}
+		r := Retention{
+			Hourly: d.RetainHourly, Daily: d.RetainDaily, Weekly: d.RetainWeekly,
+			Monthly: d.RetainMonthly, Yearly: d.RetainYearly, Count: d.RetainCount,
+		}
+		addTierGrowth(out, versions, r, since)
+	}
+	return out
+}
+
+func addTierGrowth(out map[string]int64, versions []Version, r Retention, since time.Time) {
+	gfs := r.Hourly > 0 || r.Daily > 0 || r.Weekly > 0 || r.Monthly > 0 || r.Yearly > 0
+	if !gfs {
+		// Legacy count retention — attribute recent growth as daily.
+		for _, v := range versions {
+			if v.Status != "succeeded" {
+				continue
+			}
+			t, ok := parseVersionTime(v.CreatedAt)
+			if !ok || t.Before(since) {
+				continue
+			}
+			out["daily"] += v.Bytes
+		}
+		return
+	}
+	primary := primaryRetentionTiers(versions, r)
+	for _, v := range versions {
+		tier, ok := primary[v.ID]
+		if !ok {
+			continue
+		}
+		t, ok := parseVersionTime(v.CreatedAt)
+		if !ok || t.Before(since) {
+			continue
+		}
+		out[tier] += v.Bytes
+	}
 }
 
 func (s *Store) estimateSteadyStateBytes() int64 {

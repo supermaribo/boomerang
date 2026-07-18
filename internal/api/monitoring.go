@@ -12,6 +12,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/monitoring"
 	"github.com/boomerang-backup/boomerang/internal/remote"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/update"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -32,43 +33,45 @@ func (s *Server) routesMonitoring(r chi.Router) {
 }
 
 type monitoredServerDTO struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Host             string   `json:"host"`
-	Port             int      `json:"port"`
-	Username         string   `json:"username"`
-	PublicKey        string   `json:"publicKey,omitempty"`
-	SSHHostKey       string   `json:"sshHostKey,omitempty"`
-	FileServerID     *string  `json:"fileServerId"`
-	Enabled          bool     `json:"enabled"`
-	PollIntervalSec  int      `json:"pollIntervalSec"`
-	OfflineAfterSec  int      `json:"offlineAfterSec"`
-	AlertCPUPercent  float64  `json:"alertCpuPercent"`
-	AlertMemPercent  float64  `json:"alertMemPercent"`
-	AlertDiskPercent float64  `json:"alertDiskPercent"`
-	AlertLoadPerCPU  float64  `json:"alertLoadPerCpu"`
-	AlertSustainSec  int      `json:"alertSustainSec"`
-	AlertsEnabled    bool     `json:"alertsEnabled"`
-	ClientVersion    string   `json:"clientVersion,omitempty"`
-	LastSampleAt     string   `json:"lastSampleAt,omitempty"`
-	LastPollAt       string   `json:"lastPollAt,omitempty"`
-	LastPollError    string   `json:"lastPollError,omitempty"`
-	Online           bool     `json:"online"`
-	StatusDetail     string   `json:"statusDetail,omitempty"`
-	UptimeSec        int64    `json:"uptimeSec,omitempty"`
-	CPUPercent       float64  `json:"cpuPercent,omitempty"`
-	MemPercent       float64  `json:"memPercent,omitempty"`
-	Load1            float64  `json:"load1,omitempty"`
-	NumCPU           int      `json:"numCpu,omitempty"`
-	PrimaryDiskMount string   `json:"primaryDiskMount,omitempty"`
-	PrimaryDiskPct   float64  `json:"primaryDiskPercent,omitempty"`
-	NetIface         string   `json:"netIface,omitempty"`
-	NetRxBps         *float64 `json:"netRxBps"`
-	NetTxBps         *float64 `json:"netTxBps"`
-	ActiveAlerts     []string `json:"activeAlerts"`
-	InstallCommand   string   `json:"installCommand,omitempty"`
-	CreatedAt        string   `json:"createdAt,omitempty"`
-	UpdatedAt        string   `json:"updatedAt,omitempty"`
+	ID                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	Host                  string   `json:"host"`
+	Port                  int      `json:"port"`
+	Username              string   `json:"username"`
+	PublicKey             string   `json:"publicKey,omitempty"`
+	SSHHostKey            string   `json:"sshHostKey,omitempty"`
+	FileServerID          *string  `json:"fileServerId"`
+	Enabled               bool     `json:"enabled"`
+	PollIntervalSec       int      `json:"pollIntervalSec"`
+	OfflineAfterSec       int      `json:"offlineAfterSec"`
+	AlertCPUPercent       float64  `json:"alertCpuPercent"`
+	AlertMemPercent       float64  `json:"alertMemPercent"`
+	AlertDiskPercent      float64  `json:"alertDiskPercent"`
+	AlertLoadPerCPU       float64  `json:"alertLoadPerCpu"`
+	AlertSustainSec       int      `json:"alertSustainSec"`
+	AlertsEnabled         bool     `json:"alertsEnabled"`
+	ClientVersion         string   `json:"clientVersion,omitempty"`
+	LatestClientVersion   string   `json:"latestClientVersion,omitempty"`
+	ClientUpdateAvailable bool     `json:"clientUpdateAvailable"`
+	LastSampleAt          string   `json:"lastSampleAt,omitempty"`
+	LastPollAt            string   `json:"lastPollAt,omitempty"`
+	LastPollError         string   `json:"lastPollError,omitempty"`
+	Online                bool     `json:"online"`
+	StatusDetail          string   `json:"statusDetail,omitempty"`
+	UptimeSec             int64    `json:"uptimeSec,omitempty"`
+	CPUPercent            float64  `json:"cpuPercent,omitempty"`
+	MemPercent            float64  `json:"memPercent,omitempty"`
+	Load1                 float64  `json:"load1,omitempty"`
+	NumCPU                int      `json:"numCpu,omitempty"`
+	PrimaryDiskMount      string   `json:"primaryDiskMount,omitempty"`
+	PrimaryDiskPct        float64  `json:"primaryDiskPercent,omitempty"`
+	NetIface              string   `json:"netIface,omitempty"`
+	NetRxBps              *float64 `json:"netRxBps"`
+	NetTxBps              *float64 `json:"netTxBps"`
+	ActiveAlerts          []string `json:"activeAlerts"`
+	InstallCommand        string   `json:"installCommand,omitempty"`
+	CreatedAt             string   `json:"createdAt,omitempty"`
+	UpdatedAt             string   `json:"updatedAt,omitempty"`
 }
 
 type monitoredWrite struct {
@@ -158,6 +161,10 @@ func (s *Server) toMonitoredDTO(m store.MonitoredServer, includeInstall bool) mo
 			}
 			dto.ActiveAlerts = append(dto.ActiveAlerts, a.AlertKey)
 		}
+	}
+	if latest, err := update.LatestTagCached(); err == nil && latest != "" {
+		dto.LatestClientVersion = latest
+		dto.ClientUpdateAvailable = update.ClientUpdateAvailable(m.ClientVersion, latest)
 	}
 	return dto
 }

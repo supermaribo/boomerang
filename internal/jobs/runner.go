@@ -208,7 +208,7 @@ func (r *Runner) StartDBVerify(databaseID, versionID string) (string, error) {
 }
 
 func (r *Runner) runDBVerify(jobID, databaseID, versionID string) {
-	_ = r.Store.AppendJobLog(jobID, "starting database verify")
+	_ = r.Store.AppendJobLog(jobID, "starting database verify (local-only)")
 	if r.checkCancelled(jobID) {
 		return
 	}
@@ -218,9 +218,11 @@ func (r *Runner) runDBVerify(jobID, databaseID, versionID string) {
 		return
 	}
 	if err := mysqlbackup.VerifyDBBackup(ver.PathOnDisk, r.Box); err != nil {
+		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
 		r.fail(jobID, err.Error())
 		return
 	}
+	_ = r.Store.MarkVersionVerified(versionID, true, "")
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
 	_ = r.Store.AppendJobLog(jobID, "database backup verified OK")
@@ -239,7 +241,7 @@ func (r *Runner) StartFileVerify(fileServerID, versionID string) (string, error)
 }
 
 func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
-	_ = r.Store.AppendJobLog(jobID, "starting backup verify")
+	_ = r.Store.AppendJobLog(jobID, "starting backup verify (local-only, full chain)")
 	if r.checkCancelled(jobID) {
 		return
 	}
@@ -248,10 +250,12 @@ func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
 		r.fail(jobID, "version not found or not successful")
 		return
 	}
-	if err := backup.VerifyFileBackup(ver.PathOnDisk, r.Box); err != nil {
+	if err := filebackup.VerifyVersionChain(r.Store, versionID, ver.PathOnDisk, r.Box); err != nil {
+		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
 		r.fail(jobID, err.Error())
 		return
 	}
+	_ = r.Store.MarkVersionVerified(versionID, true, "")
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
 	_ = r.Store.AppendJobLog(jobID, "backup verified OK")
