@@ -15,6 +15,16 @@ SOCKS_ADDR="127.0.0.1:1055"
 OVERRIDE_DIR="/etc/systemd/system/tailscaled.service.d"
 OVERRIDE_FILE="${OVERRIDE_DIR}/boomerang.conf"
 
+# When invoked via sudo from the boomerang service, ProtectSystem=strict makes
+# /usr and /etc read-only in this mount namespace. Re-enter PID 1's mount NS.
+if [[ "${BOOMERANG_TS_NS:-}" != "1" ]] && [[ -e /proc/1/ns/mnt ]]; then
+  if findmnt -n -o OPTIONS /usr 2>/dev/null | grep -qw ro; then
+    export BOOMERANG_TS_NS=1
+    export BOOMERANG_DATA_DIR="$DATA_DIR"
+    exec nsenter --mount=/proc/1/ns/mnt -- "$0" "$@"
+  fi
+fi
+
 cmd="${1:-}"
 
 json_get() {
@@ -33,7 +43,6 @@ PY
 
 have_tun() {
   [[ -e /dev/net/tun ]] || return 1
-  # Must be openable; some CTs present a stub node.
   python3 - <<'PY' 2>/dev/null
 import os,sys
 try:
@@ -51,6 +60,7 @@ ensure_tailscale_installed() {
   fi
   echo "==> Installing Tailscale"
   if [[ -f /etc/debian_version ]]; then
+    apt-get install -y -qq curl ca-certificates >/dev/null 2>&1 || true
     curl -fsSL https://tailscale.com/install.sh | sh
   else
     echo "unsupported OS for automatic Tailscale install" >&2
@@ -63,30 +73,27 @@ ensure_tailscale_installed() {
 }
 
 configure_daemon() {
-  mkdir -p "$OVERRIDE_DIR"
+  # Debian/Ubuntu unit expands $FLAGS from /etc/default/tailscaled — most reliable.
   if have_tun; then
     echo "==> Using kernel Tailscale (TUN available)"
-    cat >"$OVERRIDE_FILE" <<EOF
-[Service]
-Environment=
-ExecStart=
-ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
+    cat >/etc/default/tailscaled <<EOF
+PORT="41641"
+FLAGS=""
 EOF
   else
     echo "==> No /dev/net/tun — using userspace Tailscale + SOCKS ${SOCKS_ADDR}"
-    echo "    (Enable TUN on the Proxmox CT for native 100.x routing.)"
-    cat >"$OVERRIDE_FILE" <<EOF
-[Service]
-Environment=TS_USERSPACE=true
-ExecStart=
-ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --tun=userspace-networking --socks5-server=${SOCKS_ADDR}
+    cat >/etc/default/tailscaled <<EOF
+PORT="41641"
+FLAGS="--tun=userspace-networking --socks5-server=${SOCKS_ADDR}"
 EOF
   fi
+  rm -f "$OVERRIDE_FILE"
+  rmdir "$OVERRIDE_DIR" 2>/dev/null || true
   systemctl daemon-reload
   systemctl enable tailscaled.service >/dev/null 2>&1 || true
+  systemctl reset-failed tailscaled.service 2>/dev/null || true
   systemctl restart tailscaled.service
-  # Wait for socket
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 50); do
     if [[ -S /run/tailscale/tailscaled.sock ]]; then
       return 0
     fi
@@ -123,7 +130,6 @@ dns=(self.get("DNSName") or "").rstrip(".")
 ips=[]
 for a in self.get("TailscaleIPs") or []:
     ips.append(a)
-# Also parse from Status itself
 for a in st.get("TailscaleIPs") or []:
     if a not in ips:
         ips.append(a)
@@ -164,19 +170,20 @@ case "$cmd" in
     [[ -n "$hostname" ]] || hostname="boomerang"
     ensure_tailscale_installed
     configure_daemon
-    up_args=(up --hostname="$hostname" --accept-dns=false --accept-routes=false --reset)
-    if [[ -n "$authkey" ]]; then
-      up_args+=(--auth-key="$authkey")
-    fi
-    echo "==> tailscale ${up_args[*]/auth-key=***}"
-    # shellcheck disable=SC2068
+    echo "==> tailscale up hostname=$hostname"
     if [[ -n "$authkey" ]]; then
       tailscale up --hostname="$hostname" --accept-dns=false --accept-routes=false --reset --auth-key="$authkey"
     else
-      # Re-auth with existing state
       tailscale up --hostname="$hostname" --accept-dns=false --accept-routes=false
     fi
     rm -f "$REQUEST_FILE"
+    for _ in $(seq 1 40); do
+      st="$(tailscale status --json 2>/dev/null || true)"
+      if echo "$st" | grep -q '"BackendState": "Running"'; then
+        break
+      fi
+      sleep 0.25
+    done
     status_json
     ;;
   down)
