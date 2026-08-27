@@ -170,7 +170,10 @@ export default function FileServerWizard() {
     setInfo("");
     try {
       if (editing && !form.password && !form.privateKey) {
-        const res = await api<{ message: string }>(`/api/file-servers/${id}/test`, { method: "POST" });
+        const res = await api<{ message: string }>(`/api/file-servers/${id}/test`, {
+          method: "POST",
+          body: JSON.stringify(credBody()),
+        });
         setInfo(res.message);
       } else {
         const res = await api<{ message: string }>("/api/file-servers/test", {
@@ -194,7 +197,7 @@ export default function FileServerWizard() {
       if (editing && !form.password && !form.privateKey) {
         res = await api<BrowseResult>(`/api/file-servers/${id}/browse`, {
           method: "POST",
-          body: JSON.stringify({ path }),
+          body: JSON.stringify({ ...credBody(), path }),
         });
       } else {
         res = await api<BrowseResult>("/api/file-servers/browse", {
@@ -220,10 +223,7 @@ export default function FileServerWizard() {
         editing && !form.password && !form.privateKey
           ? `/api/file-servers/${id}/validate-paths`
           : "/api/file-servers/validate-paths";
-      const body =
-        editing && !form.password && !form.privateKey
-          ? { paths }
-          : { ...credBody(), paths };
+      const body = { ...credBody(), paths };
       const data = await api<{ warnings: PathWarning[] }>(url, {
         method: "POST",
         body: JSON.stringify(body),

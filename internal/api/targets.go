@@ -506,6 +506,27 @@ func (s *Server) handleBrowseFileServer(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, res)
 }
 
+func (s *Server) overlayFileServer(f *store.FileServer, req fileServerWrite) {
+	if proto := strings.ToLower(strings.TrimSpace(req.Protocol)); proto != "" {
+		f.Protocol = proto
+	}
+	if host := strings.TrimSpace(req.Host); host != "" {
+		f.Host = host
+	}
+	if req.Port > 0 {
+		f.Port = req.Port
+	}
+	if user := strings.TrimSpace(req.Username); user != "" {
+		f.Username = user
+	}
+	if root := strings.TrimSpace(req.RemoteRoot); root != "" {
+		f.RemoteRoot = root
+	}
+	if mode := strings.TrimSpace(req.AuthMode); mode != "" {
+		f.AuthMode = mode
+	}
+}
+
 func (s *Server) handleBrowseFileServerByID(w http.ResponseWriter, r *http.Request) {
 	f, err := s.store.GetFileServer(chi.URLParam(r, "id"))
 	if err != nil || f == nil {
@@ -523,15 +544,17 @@ func (s *Server) handleBrowseFileServerByID(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
+		fileServerWrite
 		Path string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	s.overlayFileServer(f, req.fileServerWrite)
 	if req.Path == "" {
 		req.Path = r.URL.Query().Get("path")
 	}
 	res, err := remote.Browse(remote.FileTarget{
 		Protocol: f.Protocol, Host: f.Host, Port: f.Port, Username: f.Username,
-		AuthMode: f.AuthMode, Secret: secret,
+		AuthMode: f.AuthMode, Secret: secret, SSHHostKey: f.SSHHostKey,
 	}, req.Path)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -580,12 +603,11 @@ func (s *Server) handleValidateFileServerPathsByID(w http.ResponseWriter, r *htt
 		return
 	}
 	var req struct {
+		fileServerWrite
 		Paths []string `json:"paths"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
-		return
-	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	s.overlayFileServer(f, req.fileServerWrite)
 	warnings, err := remote.CheckPathsAccess(remote.FileTarget{
 		Protocol: f.Protocol, Host: f.Host, Port: f.Port, Username: f.Username,
 		AuthMode: f.AuthMode, Secret: secret, SSHHostKey: f.SSHHostKey,
@@ -613,9 +635,12 @@ func (s *Server) handleTestFileServerByID(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, "secret corrupt")
 		return
 	}
+	var req fileServerWrite
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	s.overlayFileServer(f, req)
 	msg, err := remote.TestFileTarget(remote.FileTarget{
 		Protocol: f.Protocol, Host: f.Host, Port: f.Port, Username: f.Username,
-		RemoteRoot: f.RemoteRoot, AuthMode: f.AuthMode, Secret: secret,
+		RemoteRoot: f.RemoteRoot, AuthMode: f.AuthMode, Secret: secret, SSHHostKey: f.SSHHostKey,
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
