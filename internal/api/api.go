@@ -19,6 +19,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/monitoring"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/tailnet"
 	"github.com/boomerang-backup/boomerang/internal/tzutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -34,6 +35,7 @@ type Server struct {
 	sched   *jobs.Scheduler
 	offsite *offsite.Syncer
 	monitor *monitoring.Poller
+	tailnet *tailnet.Manager
 	mu      sync.Mutex
 	sess    map[string]session
 	loginN  map[string][]time.Time
@@ -70,6 +72,10 @@ func (s *Server) SetOffsite(syncer *offsite.Syncer) {
 
 func (s *Server) SetMonitor(p *monitoring.Poller) {
 	s.monitor = p
+}
+
+func (s *Server) SetTailnet(m *tailnet.Manager) {
+	s.tailnet = m
 }
 
 func (s *Server) Handler() http.Handler {

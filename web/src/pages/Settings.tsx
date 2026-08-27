@@ -7,6 +7,7 @@ import SiteFooter from "../components/SiteFooter";
 import DisasterRecovery from "../components/DisasterRecovery";
 import OffsiteSettingsPanel from "../components/OffsiteSettings";
 import UpdateSettings from "../components/UpdateSettings";
+import TailscaleSettings from "../components/TailscaleSettings";
 
 type Settings = {
   mailMode: "local" | "smtp";
@@ -29,13 +30,14 @@ type Settings = {
   timezone?: string;
 };
 
-type Tab = "account" | "notifications" | "offsite" | "recovery" | "updates";
+type Tab = "account" | "notifications" | "offsite" | "recovery" | "remote" | "updates";
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: "account", label: "Account", hint: "Login password" },
   { id: "notifications", label: "Notifications", hint: "Email alerts" },
   { id: "offsite", label: "Off-site", hint: "Cloudflare R2 mirror" },
   { id: "recovery", label: "Recovery", hint: "Protect this server" },
+  { id: "remote", label: "Remote access", hint: "Tailscale" },
   { id: "updates", label: "Updates", hint: "Software releases" },
 ];
 
@@ -72,7 +74,14 @@ export default function SettingsPage({ onLogout }: Props) {
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("tab");
-    if (p === "account" || p === "notifications" || p === "offsite" || p === "recovery" || p === "updates") {
+    if (
+      p === "account" ||
+      p === "notifications" ||
+      p === "offsite" ||
+      p === "recovery" ||
+      p === "remote" ||
+      p === "updates"
+    ) {
       setTab(p);
     }
   }, []);
@@ -541,6 +550,17 @@ export default function SettingsPage({ onLogout }: Props) {
               </header>
               <DisasterRecovery embedded />
             </>
+          )}
+
+          {tab === "remote" && (
+            <TailscaleSettings
+              busy={busy}
+              setBusy={setBusy}
+              onFlash={(err, inf) => {
+                setError(err);
+                setInfo(inf);
+              }}
+            />
           )}
 
           {tab === "updates" && (

@@ -14,6 +14,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/monitoring"
 	"github.com/boomerang-backup/boomerang/internal/offsite"
 	"github.com/boomerang-backup/boomerang/internal/store"
+	"github.com/boomerang-backup/boomerang/internal/tailnet"
 )
 
 //go:embed all:webdist
@@ -64,6 +65,9 @@ func main() {
 	srv.SetScheduler(sched)
 	srv.SetOffsite(offsiteSyncer)
 	srv.SetMonitor(monitorPoller)
+	handler := srv.Handler()
+	tn := tailnet.NewManager(handler)
+	srv.SetTailnet(tn)
 	nameFor := func(targetType, targetID string) string {
 		switch targetType {
 		case "file":
@@ -86,9 +90,11 @@ func main() {
 	defer sched.Stop()
 	monitorPoller.Start()
 	defer monitorPoller.Stop()
+	srv.StartTailscaleIfEnabled()
+	defer func() { _ = tn.Stop() }()
 
 	log.Printf("Boomerang listening on http://%s (data: %s, max concurrent jobs: %d)", cfg.ListenAddr, cfg.DataDir, cfg.MaxConcurrentJobs)
-	if err := http.ListenAndServe(cfg.ListenAddr, srv.Handler()); err != nil {
+	if err := http.ListenAndServe(cfg.ListenAddr, handler); err != nil {
 		log.Printf("server stopped: %v", err)
 		os.Exit(1)
 	}
