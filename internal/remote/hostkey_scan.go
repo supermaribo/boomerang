@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/boomerang-backup/boomerang/internal/tsdial"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -85,10 +86,18 @@ func probeHostKeys(host string, port int) ([]ssh.PublicKey, error) {
 		},
 		Timeout: 15 * time.Second,
 	}
-	conn, err := ssh.Dial("tcp", addr, cfg)
+	raw, err := tsdial.DialTimeout("tcp", addr, 15*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("ssh probe: %w", err)
+	}
+	conn, chans, reqs, err := ssh.NewClientConn(raw, addr, cfg)
 	if conn != nil {
 		_ = conn.Close()
+	} else {
+		_ = raw.Close()
 	}
+	_ = chans
+	_ = reqs
 	if len(keys) == 0 {
 		if err != nil {
 			return nil, fmt.Errorf("ssh probe: %w", err)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/boomerang-backup/boomerang/internal/remote"
+	"github.com/boomerang-backup/boomerang/internal/tsdial"
 )
 
 const (
@@ -38,30 +39,43 @@ func mysqlConn(t Target, log Logger) (host string, port int, cleanup func(), err
 	}
 	host = t.MysqlHost
 	port = t.MysqlPort
-	if !t.UseTunnel {
-		return host, port, cleanup, nil
+	if t.UseTunnel {
+		log("opening SSH tunnel for MySQL")
+		tunnel, err := remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret, remote.HostKeyTrust{
+			KnownFingerprint: t.SSHHostKey,
+		})
+		if err != nil {
+			return "", 0, cleanup, fmt.Errorf("ssh tunnel: %w", err)
+		}
+		localListener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			_ = tunnel.Close()
+			return "", 0, cleanup, err
+		}
+		localPort := localListener.Addr().(*net.TCPAddr).Port
+		remoteMySQL := net.JoinHostPort(t.MysqlHost, fmt.Sprintf("%d", t.MysqlPort))
+		go forward(tunnel, localListener, remoteMySQL, log)
+		cleanup = func() {
+			_ = localListener.Close()
+			_ = tunnel.Close()
+		}
+		time.Sleep(200 * time.Millisecond)
+		return "127.0.0.1", localPort, cleanup, nil
 	}
-	log("opening SSH tunnel for MySQL")
-	tunnel, err := remote.DialSSH(t.SSHHost, t.SSHPort, t.SSHUser, t.SSHAuth, t.SSHSecret, remote.HostKeyTrust{
-		KnownFingerprint: t.SSHHostKey,
-	})
-	if err != nil {
-		return "", 0, cleanup, fmt.Errorf("ssh tunnel: %w", err)
+	// Direct MySQL to a Tailnet address: forward locally so the mysql CLI
+	// can reach hosts via userspace SOCKS without kernel TUN.
+	if tsdial.IsTailnetHost(host) && tsdial.SOCKS() != "" {
+		log("opening local Tailscale forward for MySQL")
+		remoteMySQL := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+		lh, lp, stop, err := tsdial.LocalForward(remoteMySQL)
+		if err != nil {
+			return "", 0, cleanup, fmt.Errorf("tailscale forward: %w", err)
+		}
+		cleanup = stop
+		time.Sleep(100 * time.Millisecond)
+		return lh, lp, cleanup, nil
 	}
-	localListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		_ = tunnel.Close()
-		return "", 0, cleanup, err
-	}
-	localPort := localListener.Addr().(*net.TCPAddr).Port
-	remoteMySQL := net.JoinHostPort(t.MysqlHost, fmt.Sprintf("%d", t.MysqlPort))
-	go forward(tunnel, localListener, remoteMySQL, log)
-	cleanup = func() {
-		_ = localListener.Close()
-		_ = tunnel.Close()
-	}
-	time.Sleep(200 * time.Millisecond)
-	return "127.0.0.1", localPort, cleanup, nil
+	return host, port, cleanup, nil
 }
 
 func wrapMySQLExecError(op string, err error, out []byte) error {

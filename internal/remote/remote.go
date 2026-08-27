@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/boomerang-backup/boomerang/internal/tsdial"
 	"github.com/jlaffaye/ftp"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -94,11 +95,7 @@ func testSSHList(t FileTarget) (string, error) {
 
 func testFTP(t FileTarget) (string, error) {
 	addr := net.JoinHostPort(t.Host, fmt.Sprintf("%d", t.Port))
-	opts := []ftp.DialOption{ftp.DialWithTimeout(15 * time.Second)}
-	if t.Protocol == "ftps" {
-		opts = append(opts, ftp.DialWithExplicitTLS(nil))
-	}
-	c, err := ftp.Dial(addr, opts...)
+	c, err := ftp.Dial(addr, ftpDialOpts(t.Protocol == "ftps")...)
 	if err != nil {
 		return "", err
 	}
@@ -141,7 +138,16 @@ func DialSSH(host string, port int, user, authMode string, secret AuthSecret, tr
 		Timeout:         15 * time.Second,
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	return ssh.Dial("tcp", addr, cfg)
+	conn, err := tsdial.DialTimeout("tcp", addr, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return ssh.NewClient(c, chans, reqs), nil
 }
 
 func MarshalSecret(s AuthSecret) ([]byte, error) {

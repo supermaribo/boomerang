@@ -12,7 +12,8 @@ ExecStart=/usr/local/bin/boomerang
 Restart=on-failure
 RestartSec=3
 # NoNewPrivileges must stay off so the boomerang user can run the limited
-# passwordless sudo rule for /usr/local/sbin/boomerang-update (in-app updates).
+# passwordless sudo rules for /usr/local/sbin/boomerang-update and
+# /usr/local/sbin/boomerang-tailscale.
 ProtectSystem=strict
 ProtectHome=true
 # Data dir plus local postfix submit + sudo timestamp for update checks.

@@ -40,6 +40,9 @@ apt-get install -y -qq \
   postfix \
   mailutils \
   sudo \
+  curl \
+  netcat-openbsd \
+  python3 \
   >/dev/null
 
 echo "==> Creating boomerang system user and data directories"
@@ -56,10 +59,16 @@ echo "==> Installing binary to $PREFIX/bin/boomerang"
 install -m 755 "$BIN_SRC" "$PREFIX/bin/boomerang"
 
 install -m 755 "$SCRIPT_DIR/boomerang-update" /usr/local/sbin/boomerang-update
+install -m 755 "$SCRIPT_DIR/boomerang-tailscale" /usr/local/sbin/boomerang-tailscale
 if command -v visudo >/dev/null 2>&1; then
   cat >/etc/sudoers.d/boomerang-update <<EOF
 boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update --check
 boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-update ${DATA_DIR}/.update/*
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-tailscale --check
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-tailscale status
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-tailscale up
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-tailscale down
+boomerang ALL=(root) NOPASSWD: /usr/local/sbin/boomerang-tailscale forget
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
   if ! visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1; then

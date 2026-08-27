@@ -86,12 +86,19 @@ fi
 echo "==> Refreshing update helper and systemd unit (${label})"
 curl -fsSL "${RAW_BASE}/deploy/boomerang-update" -o "${PREFIX}/sbin/boomerang-update"
 chmod 755 "${PREFIX}/sbin/boomerang-update"
+curl -fsSL "${RAW_BASE}/deploy/boomerang-tailscale" -o "${PREFIX}/sbin/boomerang-tailscale"
+chmod 755 "${PREFIX}/sbin/boomerang-tailscale"
 curl -fsSL "${RAW_BASE}/deploy/boomerang.service" -o /etc/systemd/system/boomerang.service
 
 if command -v visudo >/dev/null 2>&1; then
   cat >/etc/sudoers.d/boomerang-update <<EOF
 boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-update --check
 boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-update ${DATA_DIR}/.update/*
+boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-tailscale --check
+boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-tailscale status
+boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-tailscale up
+boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-tailscale down
+boomerang ALL=(root) NOPASSWD: ${PREFIX}/sbin/boomerang-tailscale forget
 EOF
   chmod 440 /etc/sudoers.d/boomerang-update
   if ! visudo -cf /etc/sudoers.d/boomerang-update >/dev/null 2>&1; then
@@ -108,10 +115,19 @@ rm -f "${tmpdir}/boomerang" "${tmpdir}/SHA256SUMS"
 chown boomerang:boomerang "$staging_dir"
 chmod 700 "$staging_dir"
 
+# Tailscale helper needs python3 + openbsd netcat for userspace SOCKS dialing.
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -qq ca-certificates curl python3 netcat-openbsd >/dev/null 2>&1 || true
+
 if id boomerang >/dev/null 2>&1 && sudo -u boomerang sudo -n "${PREFIX}/sbin/boomerang-update" --check >/dev/null 2>&1; then
   echo "==> In-app updates (Settings → Updates): OK"
 else
   echo "==> warning: in-app updates may not work — check /etc/sudoers.d/boomerang-update" >&2
+fi
+if id boomerang >/dev/null 2>&1 && sudo -u boomerang sudo -n "${PREFIX}/sbin/boomerang-tailscale" --check >/dev/null 2>&1; then
+  echo "==> Tailscale helper: OK"
+else
+  echo "==> warning: Tailscale helper may not work — check sudoers" >&2
 fi
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"

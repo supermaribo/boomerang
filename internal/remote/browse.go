@@ -6,7 +6,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/jlaffaye/ftp"
 	"github.com/pkg/sftp"
@@ -110,11 +109,7 @@ func browseSFTP(t FileTarget, remotePath string) (*BrowseResult, error) {
 
 func browseFTP(t FileTarget, remotePath string) (*BrowseResult, error) {
 	addr := net.JoinHostPort(t.Host, fmt.Sprintf("%d", t.Port))
-	opts := []ftp.DialOption{ftp.DialWithTimeout(15 * time.Second)}
-	if t.Protocol == "ftps" {
-		opts = append(opts, ftp.DialWithExplicitTLS(nil))
-	}
-	c, err := ftp.Dial(addr, opts...)
+	c, err := ftp.Dial(addr, ftpDialOpts(t.Protocol == "ftps")...)
 	if err != nil {
 		return nil, err
 	}

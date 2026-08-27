@@ -16,6 +16,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/backup"
 	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/remote"
+	"github.com/boomerang-backup/boomerang/internal/tsdial"
 	"github.com/jlaffaye/ftp"
 	"github.com/klauspost/compress/zstd"
 )
@@ -220,7 +221,12 @@ func RestoreSelected(box *crypto.Box, target remote.FileTarget, versionDir strin
 
 func dialFTP(target remote.FileTarget) (*ftp.ServerConn, error) {
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
-	opts := []ftp.DialOption{ftp.DialWithTimeout(15 * time.Second)}
+	opts := []ftp.DialOption{
+		ftp.DialWithTimeout(15 * time.Second),
+		ftp.DialWithDialFunc(func(network, address string) (net.Conn, error) {
+			return tsdial.DialTimeout(network, address, 15*time.Second)
+		}),
+	}
 	if target.Protocol == "ftps" {
 		opts = append(opts, ftp.DialWithExplicitTLS(nil))
 	}

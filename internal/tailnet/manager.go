@@ -1,70 +1,69 @@
 package tailnet
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
-	"log"
-	"net"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"tailscale.com/ipn"
-	"tailscale.com/tsnet"
+	"github.com/boomerang-backup/boomerang/internal/tsdial"
+)
+
+const (
+	helperPath  = "/usr/local/sbin/boomerang-tailscale"
+	requestName = "tailscale-request.json"
 )
 
 // Status is a snapshot of Tailscale connectivity for the UI.
 type Status struct {
-	Running     bool     `json:"running"`
-	Connected   bool     `json:"connected"`
-	Hostname    string   `json:"hostname"`
-	DNSName     string   `json:"dnsName,omitempty"`
-	IPs         []string `json:"ips,omitempty"`
-	URLs        []string `json:"urls,omitempty"`
-	BackendState string  `json:"backendState,omitempty"`
-	LastError   string   `json:"lastError,omitempty"`
+	Running      bool     `json:"running"`
+	Connected    bool     `json:"connected"`
+	Hostname     string   `json:"hostname"`
+	DNSName      string   `json:"dnsName,omitempty"`
+	IPs          []string `json:"ips,omitempty"`
+	URLs         []string `json:"urls,omitempty"`
+	BackendState string   `json:"backendState,omitempty"`
+	LastError    string   `json:"lastError,omitempty"`
+	Mode         string   `json:"mode,omitempty"` // tun | userspace | none
+	SocksAddr    string   `json:"socksAddr,omitempty"`
+	TunAvailable bool     `json:"tunAvailable"`
 }
 
 // Config configures a Tailscale join.
 type Config struct {
 	Hostname string
 	AuthKey  string
-	DataDir  string // appliance data dir; state under DataDir/tailscale
+	DataDir  string
 }
 
-// Manager runs an embedded tsnet node and serves an HTTP handler on the Tailnet.
+// Manager drives system Tailscale via the root helper.
 type Manager struct {
 	mu      sync.Mutex
-	handler http.Handler
-	cfg     Config
-	srv     *tsnet.Server
-	lnHTTP  net.Listener
-	lnTLS   net.Listener
-	httpSrv *http.Server
-	tlsSrv  *http.Server
-	running bool
+	dataDir string
 	lastErr string
 }
 
-func NewManager(handler http.Handler) *Manager {
-	return &Manager{handler: handler}
+func NewManager(_ any) *Manager {
+	return &Manager{}
 }
 
+// StateDir is kept for API compatibility (legacy tsnet state cleanup).
 func StateDir(dataDir string) string {
 	return filepath.Join(dataDir, "tailscale")
 }
 
-// Start joins the Tailnet (if needed) and serves the handler on :80 and, when
-// possible, HTTPS on :443.
+func (m *Manager) requestPath(dataDir string) string {
+	return filepath.Join(dataDir, requestName)
+}
+
+// Start installs/configures system Tailscale and brings the node up.
 func (m *Manager) Start(cfg Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.running {
-		return nil
-	}
 	hostname := strings.TrimSpace(cfg.Hostname)
 	if hostname == "" {
 		hostname = "boomerang"
@@ -72,212 +71,175 @@ func (m *Manager) Start(cfg Config) error {
 	if strings.TrimSpace(cfg.DataDir) == "" {
 		return fmt.Errorf("data dir required")
 	}
-	dir := StateDir(cfg.DataDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("tailscale state dir: %w", err)
-	}
-	hasState := stateExists(dir)
-	authKey := strings.TrimSpace(cfg.AuthKey)
-	if !hasState && authKey == "" {
-		return fmt.Errorf("auth key required for first Tailscale connect")
-	}
+	m.dataDir = cfg.DataDir
 
-	ts := &tsnet.Server{
-		Hostname: hostname,
-		Dir:      dir,
-		AuthKey:  authKey,
-		Logf:     func(format string, args ...any) { log.Printf("tailscale: "+format, args...) },
-	}
+	// Drop legacy embedded-tsnet state so we don't keep a second identity around.
+	_ = os.RemoveAll(StateDir(cfg.DataDir))
 
-	lnHTTP, err := ts.Listen("tcp", ":80")
-	if err != nil {
-		_ = ts.Close()
-		m.lastErr = err.Error()
-		return fmt.Errorf("tailscale listen :80: %w", err)
+	req := map[string]string{
+		"hostname": hostname,
+		"authKey":  strings.TrimSpace(cfg.AuthKey),
 	}
-
-	var lnTLS net.Listener
-	if l, err := ts.ListenTLS("tcp", ":443"); err == nil {
-		lnTLS = l
-	} else {
-		log.Printf("tailscale: HTTPS :443 unavailable (%v); HTTP :80 only", err)
-	}
-
-	httpSrv := &http.Server{Handler: m.handler}
-	go func() {
-		if err := httpSrv.Serve(lnHTTP); err != nil && err != http.ErrServerClosed {
-			log.Printf("tailscale http serve: %v", err)
-			m.mu.Lock()
-			m.lastErr = err.Error()
-			m.mu.Unlock()
-		}
-	}()
-
-	var tlsSrv *http.Server
-	if lnTLS != nil {
-		tlsSrv = &http.Server{Handler: m.handler}
-		go func() {
-			if err := tlsSrv.Serve(lnTLS); err != nil && err != http.ErrServerClosed {
-				log.Printf("tailscale https serve: %v", err)
-				m.mu.Lock()
-				m.lastErr = err.Error()
-				m.mu.Unlock()
-			}
-		}()
-	}
-
-	m.cfg = cfg
-	m.cfg.Hostname = hostname
-	m.srv = ts
-	m.lnHTTP = lnHTTP
-	m.lnTLS = lnTLS
-	m.httpSrv = httpSrv
-	m.tlsSrv = tlsSrv
-	m.running = true
-	m.lastErr = ""
-
-	// Wait briefly for backend to come up so Status is useful after Connect.
-	go m.waitUp()
-	return nil
-}
-
-func (m *Manager) waitUp() {
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		st := m.Status()
-		if st.Connected {
-			log.Printf("tailscale: connected as %s (%s)", st.DNSName, strings.Join(st.IPs, ", "))
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-}
-
-// Stop closes Tailnet listeners but keeps node state on disk.
-func (m *Manager) Stop() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.stopLocked()
-}
-
-func (m *Manager) stopLocked() error {
-	if !m.running {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if m.httpSrv != nil {
-		_ = m.httpSrv.Shutdown(ctx)
-	}
-	if m.tlsSrv != nil {
-		_ = m.tlsSrv.Shutdown(ctx)
-	}
-	if m.lnHTTP != nil {
-		_ = m.lnHTTP.Close()
-	}
-	if m.lnTLS != nil {
-		_ = m.lnTLS.Close()
-	}
-	var err error
-	if m.srv != nil {
-		err = m.srv.Close()
-	}
-	m.srv = nil
-	m.lnHTTP = nil
-	m.lnTLS = nil
-	m.httpSrv = nil
-	m.tlsSrv = nil
-	m.running = false
-	return err
-}
-
-// Forget stops, removes persisted Tailscale state, and clears last error.
-func (m *Manager) Forget(dataDir string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_ = m.stopLocked()
-	dir := StateDir(dataDir)
-	if err := os.RemoveAll(dir); err != nil {
+	body, _ := json.Marshal(req)
+	path := m.requestPath(cfg.DataDir)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
 		m.lastErr = err.Error()
 		return err
 	}
+
+	if err := m.runHelper("up"); err != nil {
+		_ = os.Remove(path)
+		m.lastErr = err.Error()
+		return err
+	}
+	m.applySocksFromStatus()
 	m.lastErr = ""
 	return nil
 }
 
-// Status returns the current Tailnet status for the UI.
+// Stop disconnects from the Tailnet but keeps node state.
+func (m *Manager) Stop() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.runHelper("down"); err != nil {
+		m.lastErr = err.Error()
+		return err
+	}
+	tsdial.SetSOCKS("")
+	m.lastErr = ""
+	return nil
+}
+
+// Forget logs out, stops Tailscale, and clears state.
+func (m *Manager) Forget(dataDir string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dataDir = dataDir
+	_ = os.RemoveAll(StateDir(dataDir))
+	_ = os.Remove(m.requestPath(dataDir))
+	if err := m.runHelper("forget"); err != nil {
+		m.lastErr = err.Error()
+		return err
+	}
+	tsdial.SetSOCKS("")
+	m.lastErr = ""
+	return nil
+}
+
+// Status returns current Tailscale status and refreshes SOCKS routing.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := Status{
-		Running:   m.running,
-		Hostname:  m.cfg.Hostname,
-		LastError: m.lastErr,
-	}
-	if !m.running || m.srv == nil {
+	out := Status{}
+	raw, err := m.runHelperOutput("status")
+	if err != nil {
+		out.LastError = err.Error()
+		if m.lastErr != "" {
+			out.LastError = m.lastErr
+		}
 		return out
 	}
-	lc, err := m.srv.LocalClient()
-	if err != nil {
+	var st helperStatus
+	if err := json.Unmarshal(raw, &st); err != nil {
 		out.LastError = err.Error()
 		return out
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	st, err := lc.Status(ctx)
-	if err != nil {
-		out.LastError = err.Error()
-		return out
-	}
+	out.Running = st.Running || st.Connected
+	out.Connected = st.Connected
+	out.Hostname = st.Hostname
+	out.DNSName = st.DNSName
+	out.IPs = st.IPs
 	out.BackendState = st.BackendState
-	out.Connected = strings.EqualFold(st.BackendState, ipn.Running.String())
-	if st.Self != nil {
-		if st.Self.DNSName != "" {
-			out.DNSName = strings.TrimSuffix(st.Self.DNSName, ".")
-		}
-		for _, addr := range st.TailscaleIPs {
-			out.IPs = append(out.IPs, addr.String())
-		}
-		if !out.Connected && st.Self.Online {
-			out.Connected = true
-		}
+	out.Mode = st.Mode
+	out.SocksAddr = st.SocksAddr
+	out.TunAvailable = st.TunAvailable
+	out.LastError = m.lastErr
+	if st.SocksAddr != "" && st.Connected {
+		tsdial.SetSOCKS(st.SocksAddr)
+	} else if st.Mode == "tun" && st.Connected {
+		tsdial.SetSOCKS("")
 	}
+	port := "8080"
 	if out.DNSName != "" {
-		out.URLs = append(out.URLs, "http://"+out.DNSName)
-		if m.lnTLS != nil {
-			out.URLs = append([]string{"https://" + out.DNSName}, out.URLs...)
-		}
+		out.URLs = append(out.URLs, "http://"+out.DNSName+":"+port)
 	}
 	for _, ip := range out.IPs {
 		if strings.Contains(ip, ":") {
-			continue // skip IPv6 in simple URL list
+			continue
 		}
-		out.URLs = append(out.URLs, "http://"+ip)
-		if m.lnTLS != nil {
-			out.URLs = append(out.URLs, "https://"+ip)
-		}
+		out.URLs = append(out.URLs, "http://"+ip+":"+port)
 	}
 	return out
 }
 
-// Running reports whether the Tailnet HTTP server is active.
 func (m *Manager) Running() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.running
+	st := m.Status()
+	return st.Running || st.Connected
 }
 
-func stateExists(dir string) bool {
-	entries, err := os.ReadDir(dir)
+type helperStatus struct {
+	Mode         string   `json:"mode"`
+	SocksAddr    string   `json:"socksAddr"`
+	Running      bool     `json:"running"`
+	Connected    bool     `json:"connected"`
+	BackendState string   `json:"backendState"`
+	DNSName      string   `json:"dnsName"`
+	IPs          []string `json:"ips"`
+	Hostname     string   `json:"hostname"`
+	TunAvailable bool     `json:"tunAvailable"`
+}
+
+func (m *Manager) applySocksFromStatus() {
+	raw, err := m.runHelperOutput("status")
 	if err != nil {
-		return false
+		return
 	}
-	for _, e := range entries {
-		name := e.Name()
-		if name == "." || name == ".." {
-			continue
+	var st helperStatus
+	if json.Unmarshal(raw, &st) != nil {
+		return
+	}
+	if st.SocksAddr != "" && st.Connected {
+		tsdial.SetSOCKS(st.SocksAddr)
+	} else {
+		tsdial.SetSOCKS("")
+	}
+}
+
+func (m *Manager) runHelper(arg string) error {
+	_, err := m.runHelperOutput(arg)
+	return err
+}
+
+func (m *Manager) runHelperOutput(arg string) ([]byte, error) {
+	if _, err := os.Stat(helperPath); err != nil {
+		return nil, fmt.Errorf("Tailscale helper missing (%s) — upgrade the appliance", helperPath)
+	}
+	ctx := exec.Command("sudo", "-n", helperPath, arg)
+	ctx.Env = append(os.Environ(), "BOOMERANG_DATA_DIR="+m.dataDirOrDefault())
+	out, err := ctx.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
 		}
-		return true
+		return nil, fmt.Errorf("%s", msg)
 	}
-	return false
+	return out, nil
+}
+
+func (m *Manager) dataDirOrDefault() string {
+	if m.dataDir != "" {
+		return m.dataDir
+	}
+	return "/var/lib/boomerang"
+}
+
+// RefreshSOCKS loads SOCKS settings from the helper (call after reboot auto-start).
+func (m *Manager) RefreshSOCKS(dataDir string) {
+	m.mu.Lock()
+	m.dataDir = dataDir
+	m.mu.Unlock()
+	// Give tailscaled a moment after boot.
+	time.Sleep(100 * time.Millisecond)
+	m.applySocksFromStatus()
 }

@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Manage system Tailscale for Boomerang (root only via sudoers).
+# Usage:
+#   boomerang-tailscale --check
+#   boomerang-tailscale status
+#   boomerang-tailscale up      # reads $DATA_DIR/tailscale-request.json
+#   boomerang-tailscale down
+#   boomerang-tailscale forget
+set -euo pipefail
+
+PREFIX="${PREFIX:-/usr/local}"
+DATA_DIR="${BOOMERANG_DATA_DIR:-/var/lib/boomerang}"
+REQUEST_FILE="${DATA_DIR}/tailscale-request.json"
+SOCKS_ADDR="127.0.0.1:1055"
+OVERRIDE_DIR="/etc/systemd/system/tailscaled.service.d"
+OVERRIDE_FILE="${OVERRIDE_DIR}/boomerang.conf"
+
+cmd="${1:-}"
+
+json_get() {
+  local key="$1"
+  python3 - "$REQUEST_FILE" "$key" <<'PY'
+import json,sys
+path,key=sys.argv[1],sys.argv[2]
+with open(path) as f:
+    data=json.load(f)
+val=data.get(key,"")
+if val is None:
+    val=""
+print(val)
+PY
+}
+
+have_tun() {
+  [[ -e /dev/net/tun ]] || return 1
+  # Must be openable; some CTs present a stub node.
+  python3 - <<'PY' 2>/dev/null
+import os,sys
+try:
+    fd=os.open("/dev/net/tun", os.O_RDWR)
+    os.close(fd)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+PY
+}
+
+ensure_tailscale_installed() {
+  if command -v tailscale >/dev/null 2>&1 && command -v tailscaled >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "==> Installing Tailscale"
+  if [[ -f /etc/debian_version ]]; then
+    curl -fsSL https://tailscale.com/install.sh | sh
+  else
+    echo "unsupported OS for automatic Tailscale install" >&2
+    exit 1
+  fi
+  command -v tailscale >/dev/null 2>&1 || {
+    echo "tailscale install failed" >&2
+    exit 1
+  }
+}
+
+configure_daemon() {
+  mkdir -p "$OVERRIDE_DIR"
+  if have_tun; then
+    echo "==> Using kernel Tailscale (TUN available)"
+    cat >"$OVERRIDE_FILE" <<EOF
+[Service]
+Environment=
+ExecStart=
+ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
+EOF
+  else
+    echo "==> No /dev/net/tun — using userspace Tailscale + SOCKS ${SOCKS_ADDR}"
+    echo "    (Enable TUN on the Proxmox CT for native 100.x routing.)"
+    cat >"$OVERRIDE_FILE" <<EOF
+[Service]
+Environment=TS_USERSPACE=true
+ExecStart=
+ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --tun=userspace-networking --socks5-server=${SOCKS_ADDR}
+EOF
+  fi
+  systemctl daemon-reload
+  systemctl enable tailscaled.service >/dev/null 2>&1 || true
+  systemctl restart tailscaled.service
+  # Wait for socket
+  for _ in $(seq 1 30); do
+    if [[ -S /run/tailscale/tailscaled.sock ]]; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "tailscaled did not start" >&2
+  systemctl status tailscaled --no-pager >&2 || true
+  exit 1
+}
+
+status_json() {
+  local mode="none"
+  local socks=""
+  if have_tun; then
+    mode="tun"
+  elif systemctl is-active --quiet tailscaled 2>/dev/null; then
+    mode="userspace"
+    socks="$SOCKS_ADDR"
+  fi
+  local ts_json="{}"
+  if command -v tailscale >/dev/null 2>&1 && [[ -S /run/tailscale/tailscaled.sock ]]; then
+    ts_json="$(tailscale status --json 2>/dev/null || echo '{}')"
+  fi
+  python3 - "$mode" "$socks" "$ts_json" <<'PY'
+import json,sys
+mode,socks,raw=sys.argv[1],sys.argv[2],sys.argv[3]
+try:
+    st=json.loads(raw) if raw else {}
+except Exception:
+    st={}
+backend=st.get("BackendState") or ""
+self=st.get("Self") or {}
+dns=(self.get("DNSName") or "").rstrip(".")
+ips=[]
+for a in self.get("TailscaleIPs") or []:
+    ips.append(a)
+# Also parse from Status itself
+for a in st.get("TailscaleIPs") or []:
+    if a not in ips:
+        ips.append(a)
+connected = backend == "Running"
+out={
+  "mode": mode,
+  "socksAddr": socks,
+  "running": backend != "" and backend != "NoState",
+  "connected": connected,
+  "backendState": backend,
+  "dnsName": dns,
+  "ips": ips,
+  "hostname": (self.get("HostName") or ""),
+  "tunAvailable": mode == "tun",
+}
+print(json.dumps(out))
+PY
+}
+
+if [[ "$cmd" == "--check" ]]; then
+  [[ -x "${0}" ]] || { echo "helper not executable" >&2; exit 1; }
+  exit 0
+fi
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "Run as root" >&2
+  exit 1
+fi
+
+case "$cmd" in
+  status)
+    status_json
+    ;;
+  up)
+    [[ -f "$REQUEST_FILE" ]] || { echo "missing request file: $REQUEST_FILE" >&2; exit 1; }
+    hostname="$(json_get hostname)"
+    authkey="$(json_get authKey)"
+    [[ -n "$hostname" ]] || hostname="boomerang"
+    ensure_tailscale_installed
+    configure_daemon
+    up_args=(up --hostname="$hostname" --accept-dns=false --accept-routes=false --reset)
+    if [[ -n "$authkey" ]]; then
+      up_args+=(--auth-key="$authkey")
+    fi
+    echo "==> tailscale ${up_args[*]/auth-key=***}"
+    # shellcheck disable=SC2068
+    if [[ -n "$authkey" ]]; then
+      tailscale up --hostname="$hostname" --accept-dns=false --accept-routes=false --reset --auth-key="$authkey"
+    else
+      # Re-auth with existing state
+      tailscale up --hostname="$hostname" --accept-dns=false --accept-routes=false
+    fi
+    rm -f "$REQUEST_FILE"
+    status_json
+    ;;
+  down)
+    if command -v tailscale >/dev/null 2>&1; then
+      tailscale down 2>/dev/null || true
+    fi
+    status_json
+    ;;
+  forget)
+    if command -v tailscale >/dev/null 2>&1; then
+      tailscale logout 2>/dev/null || true
+      tailscale down 2>/dev/null || true
+    fi
+    systemctl stop tailscaled 2>/dev/null || true
+    rm -rf /var/lib/tailscale
+    rm -f "$REQUEST_FILE"
+    rm -f "$OVERRIDE_FILE"
+    systemctl daemon-reload 2>/dev/null || true
+    status_json
+    ;;
+  *)
+    echo "Usage: $0 --check|status|up|down|forget" >&2
+    exit 1
+    ;;
+esac

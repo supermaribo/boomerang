@@ -12,17 +12,20 @@ import (
 )
 
 type tailscaleDTO struct {
-	Enabled    bool     `json:"enabled"`
-	Hostname   string   `json:"hostname"`
-	HasAuthKey bool     `json:"hasAuthKey"`
-	HasState   bool     `json:"hasState"`
-	Running    bool     `json:"running"`
-	Connected  bool     `json:"connected"`
-	DNSName    string   `json:"dnsName,omitempty"`
-	IPs        []string `json:"ips,omitempty"`
-	URLs       []string `json:"urls,omitempty"`
-	BackendState string `json:"backendState,omitempty"`
-	LastError  string   `json:"lastError,omitempty"`
+	Enabled      bool     `json:"enabled"`
+	Hostname     string   `json:"hostname"`
+	HasAuthKey   bool     `json:"hasAuthKey"`
+	HasState     bool     `json:"hasState"`
+	Running      bool     `json:"running"`
+	Connected    bool     `json:"connected"`
+	DNSName      string   `json:"dnsName,omitempty"`
+	IPs          []string `json:"ips,omitempty"`
+	URLs         []string `json:"urls,omitempty"`
+	BackendState string   `json:"backendState,omitempty"`
+	LastError    string   `json:"lastError,omitempty"`
+	Mode         string   `json:"mode,omitempty"`
+	SocksAddr    string   `json:"socksAddr,omitempty"`
+	TunAvailable bool     `json:"tunAvailable"`
 }
 
 type tailscaleWrite struct {
@@ -114,8 +117,14 @@ func (s *Server) tailscaleDTO() tailscaleDTO {
 		hasKey = true
 	}
 	hasState := false
-	if entries, err := os.ReadDir(tailnet.StateDir(s.cfg.DataDir)); err == nil && len(entries) > 0 {
-		hasState = true
+	if s.tailnet != nil {
+		st := s.tailnet.Status()
+		hasState = st.Connected || st.Running
+	}
+	if !hasState {
+		if entries, err := os.ReadDir(tailnet.StateDir(s.cfg.DataDir)); err == nil && len(entries) > 0 {
+			hasState = true
+		}
 	}
 	out := tailscaleDTO{
 		Enabled:    enabled,
@@ -132,6 +141,9 @@ func (s *Server) tailscaleDTO() tailscaleDTO {
 		out.URLs = st.URLs
 		out.BackendState = st.BackendState
 		out.LastError = st.LastError
+		out.Mode = st.Mode
+		out.SocksAddr = st.SocksAddr
+		out.TunAvailable = st.TunAvailable
 		if st.Hostname != "" {
 			out.Hostname = st.Hostname
 		}
@@ -199,8 +211,13 @@ func (s *Server) StartTailscaleIfEnabled() {
 	if s.tailnet == nil {
 		return
 	}
+	s.tailnet.RefreshSOCKS(s.cfg.DataDir)
 	v, ok, _ := s.store.GetMeta("tailscale_enabled")
 	if !ok || !(v == "1" || strings.EqualFold(v, "true")) {
+		return
+	}
+	st := s.tailnet.Status()
+	if st.Connected {
 		return
 	}
 	cfg, err := s.loadTailscaleConfig()
@@ -210,6 +227,5 @@ func (s *Server) StartTailscaleIfEnabled() {
 	}
 	if err := s.tailnet.Start(cfg); err != nil {
 		log.Printf("tailscale auto-start: %v", err)
-		_ = s.store.SetMeta("tailscale_enabled", "0")
 	}
 }

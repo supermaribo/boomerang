@@ -66,7 +66,7 @@ func main() {
 	srv.SetOffsite(offsiteSyncer)
 	srv.SetMonitor(monitorPoller)
 	handler := srv.Handler()
-	tn := tailnet.NewManager(handler)
+	tn := tailnet.NewManager(nil)
 	srv.SetTailnet(tn)
 	nameFor := func(targetType, targetID string) string {
 		switch targetType {
@@ -91,7 +91,6 @@ func main() {
 	monitorPoller.Start()
 	defer monitorPoller.Stop()
 	srv.StartTailscaleIfEnabled()
-	defer func() { _ = tn.Stop() }()
 
 	log.Printf("Boomerang listening on http://%s (data: %s, max concurrent jobs: %d)", cfg.ListenAddr, cfg.DataDir, cfg.MaxConcurrentJobs)
 	if err := http.ListenAndServe(cfg.ListenAddr, handler); err != nil {

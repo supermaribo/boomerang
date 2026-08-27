@@ -12,6 +12,7 @@ import (
 	"github.com/boomerang-backup/boomerang/internal/archive"
 	"github.com/boomerang-backup/boomerang/internal/backup"
 	"github.com/boomerang-backup/boomerang/internal/remote"
+	"github.com/boomerang-backup/boomerang/internal/tsdial"
 )
 
 type Logger func(string)
@@ -147,6 +148,22 @@ func sshRsyncArgs(target remote.FileTarget) ([]string, func(), error) {
 		port = 22
 	}
 	sshCmd := []string{"ssh", "-p", fmt.Sprintf("%d", port)}
+	if socks := tsdial.SOCKS(); socks != "" && tsdial.IsTailnetHost(target.Host) {
+		f, err := os.CreateTemp("", "boomerang-ts-proxy-*")
+		if err != nil {
+			return nil, cleanup, err
+		}
+		script := fmt.Sprintf("#!/bin/sh\nexec nc -X 5 -x %s \"$1\" \"$2\"\n", socks)
+		if _, err := f.WriteString(script); err != nil {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+			return nil, cleanup, err
+		}
+		_ = f.Chmod(0o700)
+		_ = f.Close()
+		cleanups = append(cleanups, func() { _ = os.Remove(f.Name()) })
+		sshCmd = append(sshCmd, "-o", "ProxyCommand="+f.Name()+" %h %p")
+	}
 	if target.SSHHostKey != "" {
 		kh, khCleanup, err := remote.KnownHostsFile(target.Host, port, target.SSHHostKey)
 		if err != nil {

@@ -13,6 +13,9 @@ type TailscaleStatus = {
   urls?: string[];
   backendState?: string;
   lastError?: string;
+  mode?: string;
+  socksAddr?: string;
+  tunAvailable?: boolean;
 };
 
 type Props = {
@@ -43,12 +46,12 @@ export default function TailscaleSettings({ busy, setBusy, onFlash }: Props) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!status?.running) return;
+    if (!status?.running && !status?.connected) return;
     const t = window.setInterval(() => {
       void refresh().catch(() => undefined);
-    }, 3000);
+    }, 4000);
     return () => window.clearInterval(t);
-  }, [status?.running, refresh]);
+  }, [status?.running, status?.connected, refresh]);
 
   const connect = async () => {
     setBusy(true);
@@ -60,7 +63,12 @@ export default function TailscaleSettings({ busy, setBusy, onFlash }: Props) {
       });
       setStatus(s);
       setAuthKey("");
-      onFlash("", s.connected ? "Connected to Tailscale." : "Connecting to Tailscale…");
+      onFlash(
+        "",
+        s.connected
+          ? "Connected. Website and database targets can use Tailscale 100.x addresses."
+          : "Connecting to Tailscale…",
+      );
     } catch (e) {
       onFlash(e instanceof Error ? e.message : "Connect failed", "");
     } finally {
@@ -112,14 +120,22 @@ export default function TailscaleSettings({ busy, setBusy, onFlash }: Props) {
       <header className="settings-panel-head">
         <h2>Remote access</h2>
         <p className="muted">
-          Join your Tailnet so you can open Boomerang from any device on Tailscale. LAN{" "}
-          <code>:8080</code> keeps working.
+          Installs system Tailscale on this appliance when you connect with an auth key. That lets
+          you open the UI from your Tailnet <em>and</em> reach website/DB hosts on{" "}
+          <code>100.x</code> addresses.
         </p>
       </header>
 
       <div className="settings-form">
         <div className={`callout ${status?.connected ? "ok" : "warn"}`}>
           <strong>{stateLabel()}</strong>
+          {status?.mode && (
+            <p className="small muted">
+              Mode: {status.mode}
+              {status.mode === "userspace" ? " (SOCKS for 100.x dials; enable TUN on Proxmox for native routing)" : ""}
+              {status.mode === "tun" ? " (kernel, native 100.x routing)" : ""}
+            </p>
+          )}
           {status?.dnsName && (
             <p className="small">
               MagicDNS: <code>{status.dnsName}</code>
@@ -148,7 +164,7 @@ export default function TailscaleSettings({ busy, setBusy, onFlash }: Props) {
             value={hostname}
             onChange={(e) => setHostname(e.target.value)}
             placeholder="boomerang"
-            disabled={busy || !!status?.running}
+            disabled={busy || !!status?.connected}
           />
         </label>
 
@@ -160,7 +176,7 @@ export default function TailscaleSettings({ busy, setBusy, onFlash }: Props) {
             onChange={(e) => setAuthKey(e.target.value)}
             placeholder="tskey-auth-…"
             autoComplete="off"
-            disabled={busy || !!status?.running}
+            disabled={busy || !!status?.connected}
           />
         </label>
 
@@ -169,13 +185,12 @@ export default function TailscaleSettings({ busy, setBusy, onFlash }: Props) {
           <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noreferrer">
             Tailscale admin console
           </a>
-          . Prefer a reusable or tagged key for appliances. Enable{" "}
-          <strong>HTTPS Certificates</strong> under Tailscale DNS settings for{" "}
-          <code>https://…ts.net</code> links.
+          . Prefer a reusable or tagged key. Connect installs{" "}
+          <code>tailscaled</code> on this CT if needed.
         </p>
 
         <div className="settings-form-actions">
-          {!status?.running ? (
+          {!status?.connected ? (
             <button type="button" disabled={busy || loading} onClick={() => void connect()}>
               Connect
             </button>
