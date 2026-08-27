@@ -1,6 +1,7 @@
 package tailnet
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -216,15 +217,21 @@ func (m *Manager) runHelperOutput(arg string) ([]byte, error) {
 	}
 	ctx := exec.Command("sudo", "-n", helperPath, arg)
 	ctx.Env = append(os.Environ(), "BOOMERANG_DATA_DIR="+m.dataDirOrDefault())
-	out, err := ctx.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	ctx.Stdout = &stdout
+	ctx.Stderr = &stderr
+	err := ctx.Run()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
 		if msg == "" {
 			msg = err.Error()
 		}
 		return nil, fmt.Errorf("%s", msg)
 	}
-	return out, nil
+	return stdout.Bytes(), nil
 }
 
 func (m *Manager) dataDirOrDefault() string {

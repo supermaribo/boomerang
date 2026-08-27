@@ -93,7 +93,8 @@ Restart=on-failure
 RestartSec=3
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/boomerang /var/spool/postfix/maildrop /var/spool/postfix/public /run/sudo
+ExecStartPre=+/bin/mkdir -p /var/lib/tailscale
+ReadWritePaths=/var/lib/boomerang /var/spool/postfix/maildrop /var/spool/postfix/public /run/sudo /etc/default /var/lib/tailscale
 PrivateTmp=true
 
 [Install]

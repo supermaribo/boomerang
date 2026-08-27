@@ -43,6 +43,7 @@ apt-get install -y -qq \
   curl \
   netcat-openbsd \
   python3 \
+  util-linux \
   >/dev/null
 
 echo "==> Creating boomerang system user and data directories"
@@ -78,6 +79,7 @@ EOF
 fi
 
 install -m 644 "$SCRIPT_DIR/boomerang.service" /etc/systemd/system/boomerang.service
+install -d -m 700 /var/lib/tailscale
 
 systemctl daemon-reload
 systemctl enable boomerang.service

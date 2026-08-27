@@ -16,8 +16,10 @@ RestartSec=3
 # /usr/local/sbin/boomerang-tailscale.
 ProtectSystem=strict
 ProtectHome=true
-# Data dir plus local postfix submit + sudo timestamp for update checks.
-ReadWritePaths=/var/lib/boomerang /var/spool/postfix/maildrop /var/spool/postfix/public /run/sudo
+# Data dir, postfix submit, sudo timestamp, and Tailscale files that always exist.
+# Do not list /run/tailscale — systemd fails to start if that directory is missing.
+ExecStartPre=+/bin/mkdir -p /var/lib/tailscale
+ReadWritePaths=/var/lib/boomerang /var/spool/postfix/maildrop /var/spool/postfix/public /run/sudo /etc/default /var/lib/tailscale
 PrivateTmp=true
 
 [Install]

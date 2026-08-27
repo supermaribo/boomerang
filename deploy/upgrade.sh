@@ -89,6 +89,8 @@ chmod 755 "${PREFIX}/sbin/boomerang-update"
 curl -fsSL "${RAW_BASE}/deploy/boomerang-tailscale" -o "${PREFIX}/sbin/boomerang-tailscale"
 chmod 755 "${PREFIX}/sbin/boomerang-tailscale"
 curl -fsSL "${RAW_BASE}/deploy/boomerang.service" -o /etc/systemd/system/boomerang.service
+mkdir -p /var/lib/tailscale
+chmod 700 /var/lib/tailscale || true
 
 if command -v visudo >/dev/null 2>&1; then
   cat >/etc/sudoers.d/boomerang-update <<EOF
@@ -115,9 +117,9 @@ rm -f "${tmpdir}/boomerang" "${tmpdir}/SHA256SUMS"
 chown boomerang:boomerang "$staging_dir"
 chmod 700 "$staging_dir"
 
-# Tailscale helper needs python3 + openbsd netcat for userspace SOCKS dialing.
+# Tailscale helper needs python3, nsenter (util-linux), and netcat for SOCKS dialing.
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y -qq ca-certificates curl python3 netcat-openbsd >/dev/null 2>&1 || true
+apt-get install -y -qq ca-certificates curl python3 netcat-openbsd util-linux >/dev/null 2>&1 || true
 
 if id boomerang >/dev/null 2>&1 && sudo -u boomerang sudo -n "${PREFIX}/sbin/boomerang-update" --check >/dev/null 2>&1; then
   echo "==> In-app updates (Settings → Updates): OK"

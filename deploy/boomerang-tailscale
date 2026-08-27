@@ -15,14 +15,17 @@ SOCKS_ADDR="127.0.0.1:1055"
 OVERRIDE_DIR="/etc/systemd/system/tailscaled.service.d"
 OVERRIDE_FILE="${OVERRIDE_DIR}/boomerang.conf"
 
-# When invoked via sudo from the boomerang service, ProtectSystem=strict makes
-# /usr and /etc read-only in this mount namespace. Re-enter PID 1's mount NS.
-if [[ "${BOOMERANG_TS_NS:-}" != "1" ]] && [[ -e /proc/1/ns/mnt ]]; then
-  if findmnt -n -o OPTIONS /usr 2>/dev/null | grep -qw ro; then
-    export BOOMERANG_TS_NS=1
-    export BOOMERANG_DATA_DIR="$DATA_DIR"
-    exec nsenter --mount=/proc/1/ns/mnt -- "$0" "$@"
-  fi
+# sudo from the boomerang service inherits ProtectSystem=strict (read-only /etc).
+# Always hop into PID 1's mount namespace so Tailscale files are writable.
+# exec replaces this process on success; if setns is denied we fall through
+# and rely on systemd ReadWritePaths.
+if [[ "${BOOMERANG_TS_NS:-}" != "1" ]] && command -v nsenter >/dev/null && [[ -e /proc/1/ns/mnt ]]; then
+  export BOOMERANG_TS_NS=1
+  export BOOMERANG_DATA_DIR="$DATA_DIR"
+  exec nsenter --mount=/proc/1/ns/mnt --wd=/ -- "$0" "$@" || {
+    unset BOOMERANG_TS_NS
+    echo "==> nsenter failed; continuing in current mount namespace" >&2
+  }
 fi
 
 cmd="${1:-}"
@@ -58,7 +61,7 @@ ensure_tailscale_installed() {
   if command -v tailscale >/dev/null 2>&1 && command -v tailscaled >/dev/null 2>&1; then
     return 0
   fi
-  echo "==> Installing Tailscale"
+  echo "==> Installing Tailscale" >&2
   if [[ -f /etc/debian_version ]]; then
     apt-get install -y -qq curl ca-certificates >/dev/null 2>&1 || true
     curl -fsSL https://tailscale.com/install.sh | sh
@@ -75,13 +78,13 @@ ensure_tailscale_installed() {
 configure_daemon() {
   # Debian/Ubuntu unit expands $FLAGS from /etc/default/tailscaled — most reliable.
   if have_tun; then
-    echo "==> Using kernel Tailscale (TUN available)"
+    echo "==> Using kernel Tailscale (TUN available)" >&2
     cat >/etc/default/tailscaled <<EOF
 PORT="41641"
 FLAGS=""
 EOF
   else
-    echo "==> No /dev/net/tun — using userspace Tailscale + SOCKS ${SOCKS_ADDR}"
+    echo "==> No /dev/net/tun — using userspace Tailscale + SOCKS ${SOCKS_ADDR}" >&2
     cat >/etc/default/tailscaled <<EOF
 PORT="41641"
 FLAGS="--tun=userspace-networking --socks5-server=${SOCKS_ADDR}"
@@ -170,7 +173,7 @@ case "$cmd" in
     [[ -n "$hostname" ]] || hostname="boomerang"
     ensure_tailscale_installed
     configure_daemon
-    echo "==> tailscale up hostname=$hostname"
+    echo "==> tailscale up hostname=$hostname" >&2
     if [[ -n "$authkey" ]]; then
       tailscale up --hostname="$hostname" --accept-dns=false --accept-routes=false --reset --auth-key="$authkey"
     else
@@ -199,6 +202,8 @@ case "$cmd" in
     fi
     systemctl stop tailscaled 2>/dev/null || true
     rm -rf /var/lib/tailscale
+    mkdir -p /var/lib/tailscale
+    chmod 700 /var/lib/tailscale
     rm -f "$REQUEST_FILE"
     rm -f "$OVERRIDE_FILE"
     systemctl daemon-reload 2>/dev/null || true
