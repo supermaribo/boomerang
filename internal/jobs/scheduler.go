@@ -148,7 +148,7 @@ func (s *Scheduler) runWeeklyVerifyNow() {
 		if last == nil {
 			continue
 		}
-		if _, err := s.runner.StartFileVerify(f.ID, last.ID); err != nil {
+		if _, err := s.runner.StartFileVerifyLocal(f.ID, last.ID); err != nil {
 			log.Printf("weekly verify %s: %v", f.Name, err)
 			continue
 		}
@@ -166,7 +166,7 @@ func (s *Scheduler) runWeeklyVerifyNow() {
 		if last == nil {
 			continue
 		}
-		if _, err := s.runner.StartDBVerify(d.ID, last.ID); err != nil {
+		if _, err := s.runner.StartDBVerifyLocal(d.ID, last.ID); err != nil {
 			log.Printf("weekly verify %s: %v", d.Name, err)
 			continue
 		}

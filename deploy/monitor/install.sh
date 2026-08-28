@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Install boomerang-monitor on a Linux server (requires root / sudo).
-# Usage:
+# Install boomerang-monitor on a Linux server (must run as root).
+# Usage (already root, e.g. Proxmox):
+#   curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh \
+#     | bash -s -- --public-key 'ssh-ed25519 AAAA…'
+# Debian/Ubuntu as a normal user:
 #   curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh \
 #     | sudo bash -s -- --public-key 'ssh-ed25519 AAAA…'
 set -euo pipefail
@@ -15,8 +18,9 @@ UNINSTALL=0
 
 usage() {
   cat <<EOF
-Usage: sudo bash install.sh --public-key 'ssh-ed25519 AAAA… comment'
-       sudo bash install.sh --uninstall
+Usage: bash install.sh --public-key 'ssh-ed25519 AAAA… comment'
+       bash install.sh --uninstall
+  (must be root; use sudo on Debian/Ubuntu if you are not already root)
 Env:
   BOOMERANG_MONITOR_VERSION  release tag (default: latest)
   BOOMERANG_REPO             GitHub owner/repo (default: supermaribo/boomerang)
@@ -46,7 +50,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "must run as root (sudo)" >&2
+  echo "must run as root." >&2
+  echo "  Already root (Proxmox): omit sudo — pipe the script to bash" >&2
+  echo "  Debian/Ubuntu:          curl … | sudo bash -s -- --public-key '…'" >&2
   exit 1
 fi
 

@@ -1,7 +1,6 @@
 package mysqlbackup
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -12,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/boomerang-backup/boomerang/internal/archive"
-	"github.com/boomerang-backup/boomerang/internal/crypto"
 	"github.com/boomerang-backup/boomerang/internal/remote"
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/crypto/ssh"
@@ -30,13 +27,13 @@ type Target struct {
 	// IncludeTables limits backup to named tables; empty means all tables.
 	IncludeTables []string
 	// SSH tunnel (optional)
-	UseTunnel bool
-	SSHHost   string
-	SSHPort   int
-	SSHUser   string
-	SSHAuth       string
-	SSHSecret     remote.AuthSecret
-	SSHHostKey    string
+	UseTunnel  bool
+	SSHHost    string
+	SSHPort    int
+	SSHUser    string
+	SSHAuth    string
+	SSHSecret  remote.AuthSecret
+	SSHHostKey string
 }
 
 type Result struct {
@@ -132,12 +129,26 @@ func Backup(t Target, outDir string, log Logger) (*Result, error) {
 		return nil, fmt.Errorf("mysqldump: %w (%s)", waitErr, strings.TrimSpace(errBuf.String()))
 	}
 
-	tables, err := extractTables(nil, outPath)
+	info, err := inspectSQLDump(nil, outPath)
 	if err != nil {
 		return nil, err
 	}
+	if !info.Completed {
+		return nil, fmt.Errorf("mysqldump did not finish (missing dump completed footer)")
+	}
+	tables := info.Tables
 	if len(t.IncludeTables) > 0 {
+		if missing := missingStrings(t.IncludeTables, tables); len(missing) > 0 {
+			return nil, fmt.Errorf("dump is missing %d selected table(s): %s", len(missing), strings.Join(missing, ", "))
+		}
 		tables = append([]string(nil), t.IncludeTables...)
+	} else {
+		live, liveErr := ListBaseTables(t, log)
+		if liveErr != nil {
+			log(fmt.Sprintf("warning: could not list live tables: %v", liveErr))
+		} else if missing := missingStrings(live, tables); len(missing) > 0 {
+			return nil, fmt.Errorf("dump is missing %d live table(s): %s", len(missing), strings.Join(missing, ", "))
+		}
 	}
 	finished := time.Now().UTC().Format(time.RFC3339)
 	checksums, err := tableChecksums(t, tables, log)
@@ -172,29 +183,18 @@ func forward(client *ssh.Client, local net.Listener, remoteAddr string, log Logg
 	}
 }
 
-func extractTables(box *crypto.Box, zstPath string) ([]string, error) {
-	rc, zr, err := archive.OpenZstd(box, zstPath)
-	if err != nil {
-		return nil, err
+func missingStrings(want, have []string) []string {
+	got := map[string]bool{}
+	for _, s := range have {
+		got[s] = true
 	}
-	defer rc.Close()
-	defer zr.Close()
-	var tables []string
-	seen := map[string]bool{}
-	sc := bufio.NewScanner(zr)
-	buf := make([]byte, 0, 1024*1024)
-	sc.Buffer(buf, 16*1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if strings.HasPrefix(line, "CREATE TABLE ") || strings.HasPrefix(line, "CREATE TABLE IF NOT EXISTS ") {
-			name := parseTableName(line)
-			if name != "" && !seen[name] {
-				seen[name] = true
-				tables = append(tables, name)
-			}
+	var missing []string
+	for _, s := range want {
+		if !got[s] {
+			missing = append(missing, s)
 		}
 	}
-	return tables, sc.Err()
+	return missing
 }
 
 func parseTableName(line string) string {

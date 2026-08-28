@@ -171,14 +171,14 @@ func (s *Server) toMonitoredDTO(m store.MonitoredServer, includeInstall bool) mo
 
 func monitorInstallCommand(pubKey string) string {
 	pubKey = strings.TrimSpace(pubKey)
-	return "curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh | sudo bash -s -- --public-key '" + pubKey + "'"
+	return "curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh | bash -s -- --public-key '" + pubKey + "'"
 }
 
 func (s *Server) handleMonitorInstallHint(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scriptURL": "https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh",
 		"user":      "boomerang-monitor",
-		"note":      "Run the install command on a Linux VPS with sudo. Requires root once to create the monitoring user and systemd service.",
+		"note":      "Run as root on the Linux host. Proxmox is already root — do not prefix sudo (many Proxmox hosts do not have sudo installed).",
 	})
 }
 

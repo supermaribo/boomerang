@@ -257,14 +257,18 @@ sudo bash deploy/install.sh /path/to/boomerang
 
 ### Server monitoring agent
 
-On each Linux VPS you want to monitor (requires sudo once):
+On each Linux host you want to monitor (must run as root):
 
 1. In Boomerang open **Monitoring → Add server** and copy the install command.
-2. Run it on the target host. It installs `boomerang-monitor`, creates a locked-down `boomerang-monitor` user, and starts a systemd collector.
+2. Run it on the target host. Proxmox is already root — do not prefix `sudo` (Proxmox often does not ship sudo). Creates a locked-down `boomerang-monitor` user and a systemd collector.
 3. Back in Boomerang, click **Test connection**. Metrics are pulled over the existing SSH port with a forced-command key (no new ports).
 
 ```bash
-# Or manually:
+# Already root (Proxmox):
+curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh \
+  | bash -s -- --public-key 'ssh-ed25519 AAAA…'
+
+# Debian/Ubuntu as a normal user:
 curl -fsSL https://raw.githubusercontent.com/supermaribo/boomerang/main/deploy/monitor/install.sh \
   | sudo bash -s -- --public-key 'ssh-ed25519 AAAA…'
 ```

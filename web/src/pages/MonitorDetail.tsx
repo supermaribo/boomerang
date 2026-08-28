@@ -451,8 +451,10 @@ export default function MonitorDetail() {
           <section className="tile">
             <h2>Install client</h2>
             <p className="muted small">
-              Run once with sudo on the target Linux server. Creates user{" "}
-              <code>boomerang-monitor</code> and a forced-command SSH key (metrics export only).
+              Run as <strong>root</strong> on the target Linux host. Proxmox is already root — paste
+              the command as-is (do not add <code>sudo</code>). On Ubuntu/Debian, prefix with{" "}
+              <code>sudo</code> if you are not root. Creates user <code>boomerang-monitor</code> and
+              a forced-command SSH key (metrics export only).
             </p>
             <textarea className="pubkey" readOnly rows={3} value={installCmd} />
             <div className="actions">

@@ -197,18 +197,30 @@ func (r *Runner) Stats() (running, queued int) {
 }
 
 func (r *Runner) StartDBVerify(databaseID, versionID string) (string, error) {
+	return r.startDBVerify(databaseID, versionID, true)
+}
+
+func (r *Runner) StartDBVerifyLocal(databaseID, versionID string) (string, error) {
+	return r.startDBVerify(databaseID, versionID, false)
+}
+
+func (r *Runner) startDBVerify(databaseID, versionID string, againstSource bool) (string, error) {
 	jobID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "db", databaseID, "verify"); err != nil {
 		return "", err
 	}
 	r.submit("db", databaseID, jobID, func() {
-		r.runDBVerify(jobID, databaseID, versionID)
+		r.runDBVerify(jobID, databaseID, versionID, againstSource)
 	})
 	return jobID, nil
 }
 
-func (r *Runner) runDBVerify(jobID, databaseID, versionID string) {
-	_ = r.Store.AppendJobLog(jobID, "starting database verify (local-only)")
+func (r *Runner) runDBVerify(jobID, databaseID, versionID string, againstSource bool) {
+	if againstSource {
+		_ = r.Store.AppendJobLog(jobID, "starting database verify (dump + live checksums)")
+	} else {
+		_ = r.Store.AppendJobLog(jobID, "starting database verify (dump integrity)")
+	}
 	if r.checkCancelled(jobID) {
 		return
 	}
@@ -217,9 +229,26 @@ func (r *Runner) runDBVerify(jobID, databaseID, versionID string) {
 		r.fail(jobID, "version not found or not successful")
 		return
 	}
-	if err := mysqlbackup.VerifyDBBackup(ver.PathOnDisk, r.Box); err != nil {
-		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
-		r.fail(jobID, err.Error())
+	var verifyErr error
+	if againstSource {
+		db, err := r.Store.GetDatabase(databaseID)
+		if err != nil || db == nil {
+			r.fail(jobID, "database not found")
+			return
+		}
+		t, err := r.mysqlTarget(db)
+		if err != nil {
+			r.fail(jobID, err.Error())
+			return
+		}
+		log := func(line string) { _ = r.Store.AppendJobLog(jobID, line) }
+		verifyErr = mysqlbackup.VerifyAgainstSource(t, ver.PathOnDisk, r.Box, log)
+	} else {
+		verifyErr = mysqlbackup.VerifyDBBackup(ver.PathOnDisk, r.Box)
+	}
+	if verifyErr != nil {
+		_ = r.Store.MarkVersionVerified(versionID, false, verifyErr.Error())
+		r.fail(jobID, verifyErr.Error())
 		return
 	}
 	_ = r.Store.MarkVersionVerified(versionID, true, "")
@@ -230,18 +259,30 @@ func (r *Runner) runDBVerify(jobID, databaseID, versionID string) {
 }
 
 func (r *Runner) StartFileVerify(fileServerID, versionID string) (string, error) {
+	return r.startFileVerify(fileServerID, versionID, true)
+}
+
+func (r *Runner) StartFileVerifyLocal(fileServerID, versionID string) (string, error) {
+	return r.startFileVerify(fileServerID, versionID, false)
+}
+
+func (r *Runner) startFileVerify(fileServerID, versionID string, againstSource bool) (string, error) {
 	jobID := uuid.NewString()
 	if err := r.Store.CreateJob(jobID, "file", fileServerID, "verify"); err != nil {
 		return "", err
 	}
 	r.submit("file", fileServerID, jobID, func() {
-		r.runFileVerify(jobID, fileServerID, versionID)
+		r.runFileVerify(jobID, fileServerID, versionID, againstSource)
 	})
 	return jobID, nil
 }
 
-func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
-	_ = r.Store.AppendJobLog(jobID, "starting backup verify (local-only, full chain)")
+func (r *Runner) runFileVerify(jobID, fileServerID, versionID string, againstSource bool) {
+	if againstSource {
+		_ = r.Store.AppendJobLog(jobID, "starting backup verify (archive + remote file list)")
+	} else {
+		_ = r.Store.AppendJobLog(jobID, "starting backup verify (archive integrity)")
+	}
 	if r.checkCancelled(jobID) {
 		return
 	}
@@ -250,9 +291,26 @@ func (r *Runner) runFileVerify(jobID, fileServerID, versionID string) {
 		r.fail(jobID, "version not found or not successful")
 		return
 	}
-	if err := filebackup.VerifyVersionChain(r.Store, versionID, ver.PathOnDisk, r.Box); err != nil {
-		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
-		r.fail(jobID, err.Error())
+	log := func(line string) { _ = r.Store.AppendJobLog(jobID, line) }
+	var verifyErr error
+	if againstSource {
+		fs, err := r.Store.GetFileServer(fileServerID)
+		if err != nil || fs == nil {
+			r.fail(jobID, "file server not found")
+			return
+		}
+		target, err := r.fileTarget(fs)
+		if err != nil {
+			r.fail(jobID, err.Error())
+			return
+		}
+		verifyErr = filebackup.VerifyAgainstSource(r.Store, versionID, ver.PathOnDisk, r.Box, target, fs.ExcludePaths, log)
+	} else {
+		verifyErr = filebackup.VerifyCompleteness(r.Store, versionID, ver.PathOnDisk, r.Box)
+	}
+	if verifyErr != nil {
+		_ = r.Store.MarkVersionVerified(versionID, false, verifyErr.Error())
+		r.fail(jobID, verifyErr.Error())
 		return
 	}
 	_ = r.Store.MarkVersionVerified(versionID, true, "")
@@ -431,6 +489,13 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string, forceFull 
 	if m, err := backup.ReadFileManifest(outDir); err == nil {
 		_ = r.Store.ReplaceManifestIndex(versionID, m.Entries)
 	}
+	if err := filebackup.VerifyCompleteness(r.Store, versionID, outDir, r.Box); err != nil {
+		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
+		log("verify: " + err.Error())
+	} else {
+		_ = r.Store.MarkVersionVerified(versionID, true, "")
+		log("verify: archive is complete")
+	}
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
 	sink.log(fmt.Sprintf("version %s ready (%s)", versionID, res.Manifest.Kind))
@@ -522,11 +587,11 @@ func (r *Runner) mysqlTarget(db *store.Database) (mysqlbackup.Target, error) {
 		return mysqlbackup.Target{}, fmt.Errorf("decrypt mysql password failed")
 	}
 	t := mysqlbackup.Target{
-		MysqlHost: db.MysqlHost,
-		MysqlPort: db.MysqlPort,
-		MysqlDB:   db.MysqlDB,
-		MysqlUser: db.MysqlUser,
-		MysqlPass: string(passPlain),
+		MysqlHost:     db.MysqlHost,
+		MysqlPort:     db.MysqlPort,
+		MysqlDB:       db.MysqlDB,
+		MysqlUser:     db.MysqlUser,
+		MysqlPass:     string(passPlain),
 		IncludeTables: db.IncludeTables,
 	}
 	switch db.TunnelMode {
@@ -657,6 +722,13 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string, forceFull bool
 	}
 	log(fmt.Sprintf("finished: %s", time.Now().UTC().Format(time.RFC3339)))
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
+	if err := mysqlbackup.VerifyDBBackup(outDir, r.Box); err != nil {
+		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
+		log("verify: " + err.Error())
+	} else {
+		_ = r.Store.MarkVersionVerified(versionID, true, "")
+		log("verify: SQL dump is complete")
+	}
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
 	sink.log(fmt.Sprintf("version %s ready (%d tables)", versionID, len(res.Tables)))

@@ -323,7 +323,7 @@ export default function ExploreBackups() {
         if (job.status === "succeeded" || job.status === "failed") {
           setInfo(
             job.status === "succeeded"
-              ? "Backup verified OK (local-only)."
+              ? "Backup verified: archive is intact and remote files match."
               : `Verify failed: ${job.error || ""}`,
           );
           break;
@@ -442,7 +442,7 @@ export default function ExploreBackups() {
                   className="ghost"
                   disabled={!vid || busy || selectedVersion?.status !== "succeeded"}
                   onClick={() => void verify()}
-                  title="Local-only integrity check; does not contact the website host"
+                  title="Checks the archive and compares it to files currently readable on the website host"
                 >
                   Verify only
                 </button>

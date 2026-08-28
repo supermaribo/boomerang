@@ -178,7 +178,7 @@ export default function DatabaseBackups() {
       const result = await pollJob(res.jobId, (lines) => setInfo(lines.join(" · ")));
       setInfo(
         result.status === "succeeded"
-          ? "Backup verified OK (local-only)."
+          ? "Backup verified: dump is intact and live checksums match."
           : `Verify failed: ${result.error || ""}`,
       );
       await load();
@@ -399,7 +399,7 @@ export default function DatabaseBackups() {
                         className="ghost"
                         disabled={busy}
                         onClick={() => void runVerify(v.id)}
-                        title="Local-only integrity check; does not contact the database host"
+                        title="Checks the SQL dump and compares live table checksums to this backup"
                       >
                         Verify only
                       </button>

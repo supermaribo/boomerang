@@ -47,3 +47,52 @@ func ListTables(t Target, log Logger) ([]string, error) {
 	}
 	return tables, nil
 }
+
+// ListBaseTables returns base tables only (excludes views).
+func ListBaseTables(t Target, log Logger) ([]string, error) {
+	if log == nil {
+		log = func(string) {}
+	}
+	mysqlBin, err := exec.LookPath("mysql")
+	if err != nil {
+		return nil, fmt.Errorf("mysql client not found on appliance — install default-mysql-client")
+	}
+	host, port, cleanup, err := mysqlConn(t, log)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), mysqlListTablesTimeout)
+	defer cancel()
+
+	defaults, cleanupDefaults, err := defaultsExtraFile(host, port, t.MysqlUser, t.MysqlPass)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupDefaults()
+
+	q := "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"
+	cmd := exec.CommandContext(ctx, mysqlBin, append([]string{
+		defaults,
+	}, append(mysqlClientArgs(mysqlBin), "-N", "-B", "-e", q, t.MysqlDB)...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, wrapMySQLExecError("list base tables", err, out)
+	}
+	var tables []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name := line
+		if i := strings.IndexByte(line, '\t'); i >= 0 {
+			name = strings.TrimSpace(line[:i])
+		}
+		if name != "" {
+			tables = append(tables, name)
+		}
+	}
+	return tables, nil
+}
