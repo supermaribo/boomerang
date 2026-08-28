@@ -489,12 +489,13 @@ func (r *Runner) runFileBackup(jobID, versionID, fileServerID string, forceFull 
 	if m, err := backup.ReadFileManifest(outDir); err == nil {
 		_ = r.Store.ReplaceManifestIndex(versionID, m.Entries)
 	}
-	if err := filebackup.VerifyCompleteness(r.Store, versionID, outDir, r.Box); err != nil {
+	log("verify: checking archive against remote host")
+	if err := filebackup.VerifyAgainstSource(r.Store, versionID, outDir, r.Box, target, fs.ExcludePaths, log); err != nil {
 		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
 		log("verify: " + err.Error())
 	} else {
 		_ = r.Store.MarkVersionVerified(versionID, true, "")
-		log("verify: archive is complete")
+		log("verify: backup matches remote files")
 	}
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)
@@ -722,12 +723,13 @@ func (r *Runner) runDBBackup(jobID, versionID, databaseID string, forceFull bool
 	}
 	log(fmt.Sprintf("finished: %s", time.Now().UTC().Format(time.RFC3339)))
 	_ = r.Store.UpdateVersion(versionID, "succeeded", res.Bytes)
-	if err := mysqlbackup.VerifyDBBackup(outDir, r.Box); err != nil {
+	log("verify: checking dump against live database")
+	if err := mysqlbackup.VerifyAgainstSource(t, outDir, r.Box, log); err != nil {
 		_ = r.Store.MarkVersionVerified(versionID, false, err.Error())
 		log("verify: " + err.Error())
 	} else {
 		_ = r.Store.MarkVersionVerified(versionID, true, "")
-		log("verify: SQL dump is complete")
+		log("verify: backup matches live database")
 	}
 	now := time.Now().UTC()
 	_ = r.Store.UpdateJob(jobID, "succeeded", "", time.Time{}, &now)

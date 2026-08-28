@@ -399,7 +399,7 @@ export default function DatabaseBackups() {
                         className="ghost"
                         disabled={busy}
                         onClick={() => void runVerify(v.id)}
-                        title="Checks the SQL dump and compares live table checksums to this backup"
+                        title="Re-check this dump against live checksums (also runs automatically after each backup)"
                       >
                         Verify only
                       </button>

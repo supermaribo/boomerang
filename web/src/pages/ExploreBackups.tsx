@@ -442,7 +442,7 @@ export default function ExploreBackups() {
                   className="ghost"
                   disabled={!vid || busy || selectedVersion?.status !== "succeeded"}
                   onClick={() => void verify()}
-                  title="Checks the archive and compares it to files currently readable on the website host"
+                  title="Re-check this snapshot against the live host (also runs automatically after each backup)"
                 >
                   Verify only
                 </button>
