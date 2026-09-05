@@ -51,6 +51,7 @@ type monitoredServerDTO struct {
 	AlertSustainSec       int      `json:"alertSustainSec"`
 	AlertsEnabled         bool     `json:"alertsEnabled"`
 	ClientVersion         string   `json:"clientVersion,omitempty"`
+	SampleClientVersion   string   `json:"sampleClientVersion,omitempty"`
 	LatestClientVersion   string   `json:"latestClientVersion,omitempty"`
 	ClientUpdateAvailable bool     `json:"clientUpdateAvailable"`
 	LastSampleAt          string   `json:"lastSampleAt,omitempty"`
@@ -137,6 +138,7 @@ func (s *Server) toMonitoredDTO(m store.MonitoredServer, includeInstall bool) mo
 		dto.NetIface = sample.NetIface
 		dto.NetRxBps = sample.NetRxBps
 		dto.NetTxBps = sample.NetTxBps
+		dto.SampleClientVersion = sample.ClientVersion
 		if sample.MemTotalBytes > 0 {
 			dto.MemPercent = 100 * float64(sample.MemUsedBytes) / float64(sample.MemTotalBytes)
 		}

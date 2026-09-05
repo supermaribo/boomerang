@@ -31,6 +31,7 @@ export type MonitoredServer = {
   lastSampleAt?: string;
   lastPollError?: string;
   clientVersion?: string;
+  sampleClientVersion?: string;
   latestClientVersion?: string;
   clientUpdateAvailable?: boolean;
   activeAlerts?: string[];

@@ -426,17 +426,22 @@ export default function MonitorDetail() {
             logSourceError) && (
             <section className="tile">
               <h2>Agent attention</h2>
-              {server.clientUpdateAvailable && (
+              {server.clientUpdateAvailable &&
+                server.sampleClientVersion === server.clientVersion && (
                 <p className="err">
                   Monitor client {server.clientVersion || "unknown"} is behind{" "}
                   {server.latestClientVersion}. Re-run the install command below to update (manual
                   only — Boomerang does not push updates).
                 </p>
               )}
-              {server.lastSampleAt && !server.netIface && !server.clientUpdateAvailable && (
+              {server.lastSampleAt && !server.netIface && (
                 <p className="err">
-                  This agent is not reporting network throughput. Re-run the install command to get
-                  network metrics.
+                  Samples are still from collector {server.sampleClientVersion || "unknown"} (no
+                  default-route interface). On this host run{" "}
+                  <code>systemctl restart boomerang-monitor</code>
+                  {server.clientUpdateAvailable
+                    ? ", or re-run the install command below so the service restarts with the new binary."
+                    : " — the binary is already current, but the running daemon was not restarted after upgrade."}
                 </p>
               )}
               {logSourceError && (
@@ -532,8 +537,8 @@ export default function MonitorDetail() {
                   unit="rate"
                   emptyHint={
                     netIface
-                      ? "Collecting network rates — needs two samples after the agent upgrade."
-                      : "No network data yet. Re-run the monitor install command on this host."
+                      ? "Collecting network rates — needs two samples after the collector restart."
+                      : "No network data yet. Restart the collector on this host: systemctl restart boomerang-monitor"
                   }
                 />
               </div>

@@ -164,7 +164,10 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now boomerang-monitor.service
+systemctl enable boomerang-monitor.service
+# enable --now does not restart an already-running unit, so an in-place
+# binary upgrade would keep the old collector in memory (no new metrics).
+systemctl restart boomerang-monitor.service
 
 echo
 echo "boomerang-monitor ${VERSION} installed."

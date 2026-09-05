@@ -145,6 +145,11 @@ func exportSince(since time.Time) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Always include a live snapshot from this binary. That way an upgraded
+	// ssh-export still reports new fields even if systemd was not restarted.
+	if live, err := agentstats.Collect(version.Version); err == nil {
+		samples = append(samples, live)
+	}
 	batch := metrics.ExportBatch{
 		SchemaVersion: metrics.SchemaVersion,
 		ClientVersion: version.Version,
